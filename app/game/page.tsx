@@ -2115,55 +2115,53 @@ export default function GamePage() {
     return () => cancelAnimationFrame(animRef.current)
   }, [loop])
 
-  // ============ JOYSTICK HANDLERS ============
+  // ============ JOYSTICK HANDLERS (Pointer Events for iOS multitouch) ============
   const joystickRef = useRef<HTMLDivElement>(null)
   const [thumbPos, setThumbPos] = useState({ x: 0, y: 0 })
+  const joystickPointerId = useRef<number | null>(null)
 
-  const handleJoystickStart = (e: React.TouchEvent | React.MouseEvent) => {
+  const handleJoystickPointerDown = (e: React.PointerEvent) => {
+    if (joystickPointerId.current !== null) return // Already tracking a pointer
     e.preventDefault()
+    e.stopPropagation()
+    joystickPointerId.current = e.pointerId
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    
     if (!S.current || !joystickRef.current) return
     const rect = joystickRef.current.getBoundingClientRect()
     const centerX = rect.width / 2
     const centerY = rect.height / 2
-
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
-
-    const dx = clientX - rect.left - centerX
-    const dy = clientY - rect.top - centerY
+    const dx = e.clientX - rect.left - centerX
+    const dy = e.clientY - rect.top - centerY
     const dist = Math.sqrt(dx * dx + dy * dy)
     const maxDist = 36
-
     const clampedX = dist > maxDist ? (dx / dist) * maxDist : dx
     const clampedY = dist > maxDist ? (dy / dist) * maxDist : dy
-
     setThumbPos({ x: clampedX, y: clampedY })
     S.current.joy = { active: true, dx: clampedX, dy: clampedY }
   }
 
-  const handleJoystickMove = (e: React.TouchEvent | React.MouseEvent) => {
+  const handleJoystickPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerId !== joystickPointerId.current) return
     e.preventDefault()
+    e.stopPropagation()
     if (!S.current?.joy.active || !joystickRef.current) return
     const rect = joystickRef.current.getBoundingClientRect()
     const centerX = rect.width / 2
     const centerY = rect.height / 2
-
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
-
-    const dx = clientX - rect.left - centerX
-    const dy = clientY - rect.top - centerY
+    const dx = e.clientX - rect.left - centerX
+    const dy = e.clientY - rect.top - centerY
     const dist = Math.sqrt(dx * dx + dy * dy)
     const maxDist = 36
-
     const clampedX = dist > maxDist ? (dx / dist) * maxDist : dx
     const clampedY = dist > maxDist ? (dy / dist) * maxDist : dy
-
     setThumbPos({ x: clampedX, y: clampedY })
     S.current.joy = { active: true, dx: clampedX, dy: clampedY }
   }
 
-  const handleJoystickEnd = () => {
+  const handleJoystickPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerId !== joystickPointerId.current) return
+    joystickPointerId.current = null
     if (!S.current) return
     setThumbPos({ x: 0, y: 0 })
     S.current.joy = { active: false, dx: 0, dy: 0 }
@@ -2204,7 +2202,7 @@ export default function GamePage() {
     <div
       ref={rootRef}
       className="relative w-full h-dvh min-h-[500px] max-h-[900px] bg-[#0a0804] flex flex-col overflow-hidden select-none"
-      style={{ touchAction: 'none' }}
+      style={{ touchAction: 'pan-x pan-y' }}
     >
       {/* ============ TOP HUD ZONE ============ */}
       {screen === 'game' && S.current?.p && (
@@ -2370,18 +2368,15 @@ export default function GamePage() {
       {/* ============ BOTTOM HUD ZONE ============ */}
       {screen === 'game' && S.current && (
         <div className="flex-none p-3 flex items-end justify-between gap-3 z-10">
-          {/* Joystick (left) - 90px */}
+          {/* Joystick (left) - 90px - Pointer Events for iOS multitouch */}
           <div
             ref={joystickRef}
             className="rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0"
-            style={{ width: 90, height: 90, opacity: 0.85 }}
-            onTouchStart={handleJoystickStart}
-            onTouchMove={handleJoystickMove}
-            onTouchEnd={handleJoystickEnd}
-            onMouseDown={handleJoystickStart}
-            onMouseMove={handleJoystickMove}
-            onMouseUp={handleJoystickEnd}
-            onMouseLeave={handleJoystickEnd}
+            style={{ width: 90, height: 90, opacity: 0.85, touchAction: 'none' }}
+            onPointerDown={handleJoystickPointerDown}
+            onPointerMove={handleJoystickPointerMove}
+            onPointerUp={handleJoystickPointerUp}
+            onPointerCancel={handleJoystickPointerUp}
           >
             <div
               className="w-10 h-10 rounded-full bg-[rgba(200,168,75,0.25)] border border-[rgba(200,168,75,0.5)]"
@@ -2395,22 +2390,29 @@ export default function GamePage() {
           <div className="flex flex-col gap-2.5 items-end">
             {/* Primary Actions Row - Large buttons: Sword, Shield, Ring */}
             <div className={`flex ${isCompact ? 'gap-2' : 'gap-3'} items-center`}>
-              {/* Attack (Sword) Button */}
+              {/* Attack (Sword) Button - touchAction:none for instant response */}
               <button
-                onTouchStart={(e) => e.preventDefault()}
+                onTouchStart={(e) => { e.preventDefault(); doAttack() }}
                 onClick={(e) => { e.preventDefault(); doAttack() }}
                 className="w-16 h-16 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all shadow-lg"
+                style={{ touchAction: 'none' }}
                 title="Atacar"
               >
                 {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
               </button>
 
-              {/* Defend (Shield) Button */}
+              {/* Defend (Shield) Button - touchAction:none for instant response */}
               <button
-                onTouchStart={(e) => e.preventDefault()}
+                onTouchStart={(e) => { 
+                  e.preventDefault()
+                  if (S.current?.p) {
+                    S.current.p.invT = Math.max(S.current.p.invT, 60)
+                    log('s', 'Te pones en guardia.')
+                    notify('DEFENSA', '#5a8a3a')
+                  }
+                }}
                 onClick={(e) => { 
                   e.preventDefault()
-                  // Defend action - give temporary invincibility frames
                   if (S.current?.p) {
                     S.current.p.invT = Math.max(S.current.p.invT, 60)
                     log('s', 'Te pones en guardia.')
@@ -2418,18 +2420,19 @@ export default function GamePage() {
                   }
                 }}
                 className="w-16 h-16 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all shadow-lg"
+                style={{ touchAction: 'none' }}
                 title="Defender"
               >
                 🛡️
               </button>
 
-              {/* Ring Button (highlighted for Frodo) */}
+              {/* Ring Button (highlighted for Frodo) - touchAction:none */}
               {S.current.p?.inv.includes('anillo') && (
                 <button
-                  onTouchStart={(e) => e.preventDefault()}
+                  onTouchStart={(e) => { e.preventDefault(); useRing() }}
                   onClick={(e) => { e.preventDefault(); useRing() }}
                   className="w-16 h-16 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all shadow-lg animate-pulse"
-                  style={{ boxShadow: '0 0 12px rgba(200,168,75,0.4)' }}
+                  style={{ boxShadow: '0 0 12px rgba(200,168,75,0.4)', touchAction: 'none' }}
                   title="Usar Anillo"
                 >
                   💍
@@ -2439,52 +2442,67 @@ export default function GamePage() {
 
             {/* Action Bar Row - 4 smaller buttons */}
             <div className={`flex ${isCompact ? 'gap-2' : 'gap-2.5'} items-center`}>
-              {/* Potion Button */}
+              {/* Potion Button - touchAction:none */}
               <button
-                onTouchStart={(e) => e.preventDefault()}
+                onTouchStart={(e) => { 
+                  e.preventDefault()
+                  const miruvorIdx = S.current?.p?.inv.indexOf('miruvor') ?? -1
+                  if (miruvorIdx >= 0) useItem(miruvorIdx)
+                }}
                 onClick={(e) => { 
                   e.preventDefault()
                   const miruvorIdx = S.current?.p?.inv.indexOf('miruvor') ?? -1
                   if (miruvorIdx >= 0) useItem(miruvorIdx)
                 }}
                 className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#1a3020] border-2 border-[#2a4a30] flex items-center justify-center text-lg active:bg-[#2a4030] active:scale-95 transition-all`}
+                style={{ touchAction: 'none' }}
                 title="Poción"
               >
                 🧴
               </button>
 
-              {/* Food Button */}
+              {/* Food Button - touchAction:none */}
               <button
-                onTouchStart={(e) => e.preventDefault()}
+                onTouchStart={(e) => { 
+                  e.preventDefault()
+                  const lembasIdx = S.current?.p?.inv.indexOf('lembas') ?? -1
+                  if (lembasIdx >= 0) useItem(lembasIdx)
+                }}
                 onClick={(e) => { 
                   e.preventDefault()
                   const lembasIdx = S.current?.p?.inv.indexOf('lembas') ?? -1
                   if (lembasIdx >= 0) useItem(lembasIdx)
                 }}
                 className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#2a2010] border-2 border-[#4a3a20] flex items-center justify-center text-lg active:bg-[#3a3020] active:scale-95 transition-all`}
+                style={{ touchAction: 'none' }}
                 title="Comer"
               >
                 🍞
               </button>
 
-              {/* Chat/Talk Button */}
+              {/* Chat/Talk Button - touchAction:none */}
               <button
-                onTouchStart={(e) => e.preventDefault()}
+                onTouchStart={(e) => { e.preventDefault(); tryInteract() }}
                 onClick={(e) => { e.preventDefault(); tryInteract() }}
                 className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center text-lg active:bg-[#1a2a3a] active:scale-95 transition-all`}
+                style={{ touchAction: 'none' }}
                 title="Hablar"
               >
                 💬
               </button>
 
-              {/* Plus/Custom Button (opens inventory or mods) */}
+              {/* Plus/Custom Button (opens inventory or mods) - touchAction:none */}
               <button
-                onTouchStart={(e) => e.preventDefault()}
+                onTouchStart={(e) => { 
+                  e.preventDefault()
+                  setInvPanelOpen(!invPanelOpen)
+                }}
                 onClick={(e) => { 
                   e.preventDefault()
                   setInvPanelOpen(!invPanelOpen)
                 }}
                 className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#1a1a2a] border-2 border-[#2a2a4a] flex items-center justify-center text-lg active:bg-[#2a2a3a] active:scale-95 transition-all`}
+                style={{ touchAction: 'none' }}
                 title="Inventario"
               >
                 +
