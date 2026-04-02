@@ -245,7 +245,8 @@ export default function GamePage() {
     if (!S.current) return
     const now = new Date()
     const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
-    S.current.logs.push({ type, msg, time })
+    const truncated = msg.length > 42 ? msg.slice(0, 39) + '...' : msg
+    S.current.logs.push({ type, msg: truncated, time })
     if (S.current.logs.length > 80) S.current.logs.shift()
     // Auto-scroll to bottom
     setTimeout(() => {
@@ -583,40 +584,45 @@ export default function GamePage() {
   const openGandalfDlg = useCallback(() => {
     if (!S.current || !S.current.gandalfAlly || !S.current.p) return
     const pName = CHARS[S.current.p.char].name
+    // Log del dialogo directamente en la terminal
+    log('e', `GANDALF: El Nazgul acecha, ${pName}.`)
+    log('e', `GANDALF: Quedate cerca de mi.`)
+    // Setear dlg para que la botonera muestre la opcion de respuesta
     S.current.dlg = {
       active: true,
       speaker: 'GANDALF',
-      lines: [`El Nazgûl acecha, ${pName}. Quédate cerca de mí cuando te persiga. Lo mantendré a raya con mi báculo.`],
+      lines: [],
       lineIdx: 0,
       opts: [{ l: 'Gracias, Gandalf.', action: 'close' }],
     }
     S.current.gandalfAlly.talked = true
-    log('e', 'Gandalf te habla sobre el peligro que se acerca.')
     forceUpdate(n => n + 1)
   }, [log])
 
   const openVillagerDlg = useCallback((v: Villager) => {
     if (!S.current) return
-    const lines = [
-      `¡Hola, viajero! Soy ${v.name}.`,
-      v.items.length > 0 ? `Tengo algo que podría ayudarte...` : `Ten cuidado por ahí.`,
-    ]
+    // Escribir el dialogo en la terminal
+    log('e', `${v.name.toUpperCase()}: Hola, viajero!`)
+    if (v.items.length > 0) {
+      log('e', `${v.name.toUpperCase()}: Tengo algo para ti...`)
+    } else {
+      log('e', `${v.name.toUpperCase()}: Ten cuidado por ahi.`)
+    }
     const opts: { l: string; action?: string }[] = []
     if (v.items.length > 0) {
       opts.push({ l: `Recibir ${ITEMS[v.items[0]]?.icon || '?'}`, action: 'give_item' })
     }
-    opts.push({ l: 'Quédate en casa', action: 'stay_home' })
-    opts.push({ l: 'Adiós', action: 'close' })
+    opts.push({ l: 'Quedate en casa', action: 'stay_home' })
+    opts.push({ l: 'Adios', action: 'close' })
 
     S.current.dlg = {
       active: true,
       speaker: v.name.toUpperCase(),
-      lines,
+      lines: [],
       lineIdx: 0,
       opts,
       target: v,
     }
-    log('e', `${v.name} te saluda.`)
     forceUpdate(n => n + 1)
   }, [log])
 
@@ -2312,22 +2318,23 @@ export default function GamePage() {
       {screen === 'game' && S.current && (
         <div 
           className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
-          style={{ 
-            background: 'rgba(0,0,0,0.85)', 
+          style={{
+            background: '#000000',
             height: 'auto',
             minHeight: 0,
             maxHeight: 130,
           }}
         >
-          {/* Terminal Log (2 lines max, scrollable) */}
+          {/* Terminal Log - 2 lineas exactas, no wrap */}
           <div 
             ref={logRef}
             className="overflow-y-auto px-2 py-1 font-mono leading-snug"
-            style={{ maxHeight: '44px', fontSize: '11px' }}
+            style={{ maxHeight: '44px', fontSize: '11px', background: '#000000' }}
           >
-            {S.current.logs.map((l, i) => (
+            {S.current.logs.slice(-10).map((l, i) => (
               <div
                 key={i}
+                style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 className={
                   l.type === 'i' ? 'text-[#8aaa6e]' :
                   l.type === 'e' ? 'text-[#c8a84b]' :
@@ -2359,62 +2366,43 @@ export default function GamePage() {
             />
           </div>
           
-          {/* Terminal Options (contextual buttons) */}
-          {termContext === 'interaction' && (
-            <div className="flex-none flex gap-1.5 p-1.5 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
+          {/* Botonera contextual - dialogo activo o interaccion disponible */}
+          {S.current.dlg.active ? (
+            <div className="flex-none flex gap-2 p-1.5 border-t border-[#2a3a1a]" style={{ background: 'rgba(0,0,0,0.4)' }}>
+              {S.current.dlg.opts.map((opt, i) => (
+                <button
+                  key={i}
+                  onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); selectDlgOpt(opt) }}
+                  onClick={() => selectDlgOpt(opt)}
+                  className="flex-1 py-1.5 rounded-lg text-xs font-medium border active:scale-95 transition-all"
+                  style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', borderColor: '#4a3a20' }}
+                >
+                  {opt.l}
+                </button>
+              ))}
+            </div>
+          ) : termContext === 'interaction' ? (
+            <div className="flex-none flex gap-2 p-1.5 border-t border-[#2a3a1a]" style={{ background: 'rgba(0,0,0,0.2)' }}>
               <button
-                onTouchStart={(e) => { e.preventDefault(); tryInteract() }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); tryInteract() }}
                 onClick={(e) => { e.preventDefault(); tryInteract() }}
-                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(90,138,58,0.2)] text-[#8aaa6e] border border-[#3a4a2a] active:bg-[rgba(90,138,58,0.4)]"
+                className="flex-1 py-1.5 rounded-lg text-xs font-medium border active:scale-95"
+                style={{ background: 'rgba(90,138,58,0.2)', color: '#8aaa6e', borderColor: '#3a4a2a' }}
               >
                 Hablar
               </button>
               <button
-                onTouchStart={(e) => e.preventDefault()}
-                onClick={(e) => { e.preventDefault(); }}
-                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
-              >
-                Ayuda
-              </button>
-              <button
-                onTouchStart={(e) => { e.preventDefault(); closeDlg() }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); closeDlg() }}
                 onClick={(e) => { e.preventDefault(); closeDlg() }}
-                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(60,50,40,0.3)] text-[#6a5a4a] border border-[#3a3a2a] active:bg-[rgba(60,50,40,0.5)]"
+                className="flex-1 py-1.5 rounded-lg text-xs font-medium border active:scale-95"
+                style={{ background: 'rgba(60,50,40,0.3)', color: '#6a5a4a', borderColor: '#3a3a2a' }}
               >
                 Ignorar
               </button>
             </div>
-          )}
+          ) : null}
           
-          {/* Dialog options in terminal */}
-          {S.current.dlg.active && (
-            <div className="flex-none flex flex-col gap-1 p-1.5 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
-              <div className="text-[#c8a84b] text-[10px] font-bold">{S.current.dlg.speaker}:</div>
-              <div className="text-[#8aaa6e] text-xs mb-1">{S.current.dlg.lines[S.current.dlg.lineIdx]}</div>
-              {S.current.dlg.lineIdx === S.current.dlg.lines.length - 1 ? (
-                <div className="flex gap-1.5">
-                  {S.current.dlg.opts.map((opt, i) => (
-                    <button
-                      key={i}
-                      onTouchStart={() => selectDlgOpt(opt)}
-                      onClick={() => selectDlgOpt(opt)}
-                      className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
-                    >
-                      {opt.l}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <button
-                  onTouchStart={advanceDlg}
-                  onClick={advanceDlg}
-                  className="py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
-                >
-                  Continuar...
-                </button>
-              )}
-            </div>
-          )}
+
         </div>
       )}
 
