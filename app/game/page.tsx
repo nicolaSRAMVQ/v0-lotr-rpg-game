@@ -2208,7 +2208,7 @@ export default function GamePage() {
     >
       {/* ============ TOP HUD ZONE ============ */}
       {screen === 'game' && S.current?.p && (
-        <div className="flex-none p-2 pb-0 flex flex-col gap-1.5 z-10">
+        <div className="flex-none p-2 pb-0 z-10">
           {/* Top Row: Minimap + Status */}
           <div className="flex items-start justify-between">
             {/* Minimap */}
@@ -2218,55 +2218,138 @@ export default function GamePage() {
             
             {/* Status Text */}
             <div className="text-right">
-              <div className="text-[#c8a84b] text-[10px] tracking-[1px] font-bold">
-                {CHARS[S.current.p.char].name}
+              <div className="text-[#c8a84b] text-sm tracking-[1px] font-bold">
+                {S.current.gameMode === 'horde' && S.current.wave > 0 
+                  ? `OLEADA ${S.current.wave}/10`
+                  : CHARS[S.current.p.char].name
+                }
               </div>
               <div className="flex gap-0.5 justify-end mt-0.5">
                 {Array.from({ length: S.current.p.maxhp }).map((_, i) => (
                   <div
                     key={i}
-                    className={`w-1.5 h-1.5 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
+                    className={`w-2 h-2 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
                   />
                 ))}
               </div>
-              <div className="text-[#8aaa6e] text-[9px] mt-0.5 font-medium">
-                {S.current.gameMode === 'horde' && S.current.wave > 0 
-                  ? `OLEADA ${S.current.wave}/10 | Aldeanos: ${savedCount}/8`
-                  : `Aldeanos: ${savedCount}/8`
-                }
+              <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
+                Aldeanos: {savedCount}/8
               </div>
               {S.current.heroMode && (
-                <div className="text-[#c8a84b] text-[8px] animate-pulse">INMORTAL</div>
+                <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
               )}
               {S.current.p.ringActive > 0 && (
-                <div className="text-[#c8a84b] text-[8px] animate-pulse">INVISIBLE</div>
+                <div className="text-[#c8a84b] text-[10px] animate-pulse">INVISIBLE</div>
               )}
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Terminal (2 lines max, 1 line in compact mode, auto-fade style) */}
+      {/* ============ TERMINAL ZONE (25% height, scrollable, interactive) ============ */}
+      {screen === 'game' && S.current && (
+        <div 
+          className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
+          style={{ 
+            background: 'rgba(0,0,0,0.85)', 
+            height: isCompact ? '20%' : '25%',
+            minHeight: isCompact ? 100 : 120,
+            maxHeight: 220,
+          }}
+        >
+          {/* Terminal Log (scrollable) */}
           <div 
-            className="rounded-lg border border-[#2a3a1a] overflow-hidden"
-            style={{ background: 'rgba(0,0,0,0.7)' }}
+            className="flex-1 overflow-y-auto px-3 py-2 font-mono text-sm leading-relaxed"
+            style={{ scrollBehavior: 'smooth' }}
           >
-            <div className={`px-2 py-1 font-mono text-[10px] leading-snug overflow-hidden ${isCompact ? 'max-h-[1.3em]' : 'max-h-[2.5em]'}`}>
-              {S.current.logs.slice(isCompact ? -1 : -2).map((l, i) => (
-                <div
-                  key={i}
-                  className={
-                    l.type === 'i' ? 'text-[#8aaa6e]' :
-                    l.type === 'e' ? 'text-[#c8a84b]' :
-                    l.type === 'd' ? 'text-[#e24b4a]' :
-                    l.type === 's' ? 'text-[#5a6a3a]' :
-                    'text-[#8aaa6e]'
-                  }
-                  style={{ opacity: i === 0 ? 0.6 : 1 }}
-                >
-                  {l.msg}
-                </div>
-              ))}
-            </div>
+            {S.current.logs.map((l, i) => (
+              <div
+                key={i}
+                className={
+                  l.type === 'i' ? 'text-[#8aaa6e]' :
+                  l.type === 'e' ? 'text-[#c8a84b]' :
+                  l.type === 'd' ? 'text-[#e24b4a]' :
+                  l.type === 's' ? 'text-[#5a6a3a]' :
+                  'text-[#8aaa6e]'
+                }
+              >
+                <span className="text-[#5a6a3a] mr-2">[{l.time}]</span>
+                {l.msg}
+              </div>
+            ))}
           </div>
+          
+          {/* Terminal Input */}
+          <div className="flex-none flex items-center h-10 px-3 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.3)]">
+            <span className="text-[#5a6a3a] mr-2 text-sm">{'>'}</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={S.current.termInput}
+              onChange={handleTermInput}
+              onKeyDown={handleTermKeyDown}
+              onFocus={() => { if (S.current) S.current.gamePaused = true }}
+              onBlur={() => { if (S.current) S.current.gamePaused = false }}
+              placeholder="/mods o escribe aquí..."
+              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a] text-sm"
+              style={{ fontSize: '16px' }}
+            />
+          </div>
+          
+          {/* Terminal Options (contextual buttons) */}
+          {termContext === 'interaction' && (
+            <div className="flex-none flex gap-2 p-2 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { e.preventDefault(); tryInteract() }}
+                className="flex-1 py-2 rounded-lg text-sm font-medium bg-[rgba(90,138,58,0.2)] text-[#8aaa6e] border border-[#3a4a2a] active:bg-[rgba(90,138,58,0.4)]"
+              >
+                Hablar
+              </button>
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { e.preventDefault(); /* pedir ayuda */ }}
+                className="flex-1 py-2 rounded-lg text-sm font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
+              >
+                Pedir ayuda
+              </button>
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { e.preventDefault(); closeDlg() }}
+                className="flex-1 py-2 rounded-lg text-sm font-medium bg-[rgba(60,50,40,0.3)] text-[#6a5a4a] border border-[#3a3a2a] active:bg-[rgba(60,50,40,0.5)]"
+              >
+                Ignorar
+              </button>
+            </div>
+          )}
+          
+          {/* Dialog options in terminal */}
+          {S.current.dlg.active && (
+            <div className="flex-none flex flex-col gap-1 p-2 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
+              <div className="text-[#c8a84b] text-xs font-bold mb-1">{S.current.dlg.speaker}:</div>
+              <div className="text-[#8aaa6e] text-sm mb-2">{S.current.dlg.lines[S.current.dlg.lineIdx]}</div>
+              {S.current.dlg.lineIdx === S.current.dlg.lines.length - 1 ? (
+                <div className="flex gap-2">
+                  {S.current.dlg.opts.map((opt, i) => (
+                    <button
+                      key={i}
+                      onClick={() => selectDlgOpt(opt)}
+                      className="flex-1 py-2 rounded-lg text-sm font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
+                    >
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  onClick={advanceDlg}
+                  className="py-2 rounded-lg text-sm font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
+                >
+                  Continuar...
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2286,12 +2369,12 @@ export default function GamePage() {
 
       {/* ============ BOTTOM HUD ZONE ============ */}
       {screen === 'game' && S.current && (
-        <div className="flex-none p-2 sm:p-3 flex items-end justify-between gap-2 sm:gap-4 z-10">
-          {/* Joystick (left) - 80px in compact, 96px normal */}
+        <div className="flex-none p-3 flex items-end justify-between gap-3 z-10">
+          {/* Joystick (left) - 90px */}
           <div
             ref={joystickRef}
-            className={`${isCompact ? 'w-20 h-20' : 'w-24 h-24'} rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0`}
-            style={{ opacity: 0.8 }}
+            className="rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0"
+            style={{ width: 90, height: 90, opacity: 0.85 }}
             onTouchStart={handleJoystickStart}
             onTouchMove={handleJoystickMove}
             onTouchEnd={handleJoystickEnd}
@@ -2301,43 +2384,76 @@ export default function GamePage() {
             onMouseLeave={handleJoystickEnd}
           >
             <div
-              className={`${isCompact ? 'w-8 h-8' : 'w-10 h-10'} rounded-full bg-[rgba(200,168,75,0.25)] border border-[rgba(200,168,75,0.5)]`}
+              className="w-10 h-10 rounded-full bg-[rgba(200,168,75,0.25)] border border-[rgba(200,168,75,0.5)]"
               style={{
                 transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`,
               }}
             />
           </div>
 
-          {/* Action Bar (right) - 5 icon buttons (4 in compact mode) */}
-          <div className={`flex ${isCompact ? 'gap-1.5' : 'gap-2'} items-center`}>
-            {/* Attack Button */}
-            <button
-              onTouchStart={(e) => e.preventDefault()}
-              onClick={(e) => { e.preventDefault(); doAttack() }}
-              className={`${isCompact ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'} rounded-xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center active:bg-[#8a2a2a] active:scale-95 transition-all`}
-              title={S.current.p?.char === 'frodo' ? 'Daga' : S.current.p?.char === 'gandalf' ? 'Báculo' : 'Espada'}
-            >
-              {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
-            </button>
+          {/* Combat Controls (right) - Two rows */}
+          <div className="flex flex-col gap-2.5 items-end">
+            {/* Primary Actions Row - Large buttons: Sword, Shield, Ring */}
+            <div className={`flex ${isCompact ? 'gap-2' : 'gap-3'} items-center`}>
+              {/* Attack (Sword) Button */}
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { e.preventDefault(); doAttack() }}
+                className="w-16 h-16 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all shadow-lg"
+                title="Atacar"
+              >
+                {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
+              </button>
 
-            {/* Potion/Item Button */}
-            <button
-              onTouchStart={(e) => e.preventDefault()}
-              onClick={(e) => { 
-                e.preventDefault()
-                const lembasIdx = S.current?.p?.inv.indexOf('lembas') ?? -1
-                const miruvorIdx = S.current?.p?.inv.indexOf('miruvor') ?? -1
-                if (miruvorIdx >= 0) useItem(miruvorIdx)
-                else if (lembasIdx >= 0) useItem(lembasIdx)
-              }}
-              className={`${isCompact ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'} rounded-xl bg-[#1a3020] border-2 border-[#2a4a30] flex items-center justify-center active:bg-[#2a4030] active:scale-95 transition-all`}
-              title="Usar poción"
-            >
-              🧴
-            </button>
+              {/* Defend (Shield) Button */}
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { 
+                  e.preventDefault()
+                  // Defend action - give temporary invincibility frames
+                  if (S.current?.p) {
+                    S.current.p.invT = Math.max(S.current.p.invT, 60)
+                    log('s', 'Te pones en guardia.')
+                    notify('DEFENSA', '#5a8a3a')
+                  }
+                }}
+                className="w-16 h-16 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all shadow-lg"
+                title="Defender"
+              >
+                🛡️
+              </button>
 
-            {/* Food/Lembas Button - hidden in compact mode */}
-            {!isCompact && (
+              {/* Ring Button (highlighted for Frodo) */}
+              {S.current.p?.inv.includes('anillo') && (
+                <button
+                  onTouchStart={(e) => e.preventDefault()}
+                  onClick={(e) => { e.preventDefault(); useRing() }}
+                  className="w-16 h-16 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all shadow-lg animate-pulse"
+                  style={{ boxShadow: '0 0 12px rgba(200,168,75,0.4)' }}
+                  title="Usar Anillo"
+                >
+                  💍
+                </button>
+              )}
+            </div>
+
+            {/* Action Bar Row - 4 smaller buttons */}
+            <div className={`flex ${isCompact ? 'gap-2' : 'gap-2.5'} items-center`}>
+              {/* Potion Button */}
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { 
+                  e.preventDefault()
+                  const miruvorIdx = S.current?.p?.inv.indexOf('miruvor') ?? -1
+                  if (miruvorIdx >= 0) useItem(miruvorIdx)
+                }}
+                className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#1a3020] border-2 border-[#2a4a30] flex items-center justify-center text-lg active:bg-[#2a4030] active:scale-95 transition-all`}
+                title="Poción"
+              >
+                🧴
+              </button>
+
+              {/* Food Button */}
               <button
                 onTouchStart={(e) => e.preventDefault()}
                 onClick={(e) => { 
@@ -2345,88 +2461,97 @@ export default function GamePage() {
                   const lembasIdx = S.current?.p?.inv.indexOf('lembas') ?? -1
                   if (lembasIdx >= 0) useItem(lembasIdx)
                 }}
-                className="w-14 h-14 rounded-xl bg-[#2a2010] border-2 border-[#4a3a20] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all"
-                title="Comer lembas"
+                className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#2a2010] border-2 border-[#4a3a20] flex items-center justify-center text-lg active:bg-[#3a3020] active:scale-95 transition-all`}
+                title="Comer"
               >
                 🍞
               </button>
-            )}
 
-            {/* Talk/Interact Button */}
-            <button
-              onTouchStart={(e) => e.preventDefault()}
-              onClick={(e) => { e.preventDefault(); tryInteract() }}
-              className={`${isCompact ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'} rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center active:bg-[#1a2a3a] active:scale-95 transition-all`}
-              title="Hablar"
-            >
-              💬
-            </button>
+              {/* Chat/Talk Button */}
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { e.preventDefault(); tryInteract() }}
+                className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center text-lg active:bg-[#1a2a3a] active:scale-95 transition-all`}
+                title="Hablar"
+              >
+                💬
+              </button>
 
-            {/* Custom/Menu Button */}
-            <button
-              onTouchStart={(e) => e.preventDefault()}
-              onClick={(e) => { 
-                e.preventDefault()
-                setInvPanelOpen(!invPanelOpen)
-              }}
-              className={`${isCompact ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'} rounded-xl bg-[#1a1a2a] border-2 border-[#2a2a4a] flex items-center justify-center active:bg-[#2a2a3a] active:scale-95 transition-all`}
-              title="Inventario"
-            >
-              🎒
-            </button>
+              {/* Plus/Custom Button (opens inventory or mods) */}
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { 
+                  e.preventDefault()
+                  setInvPanelOpen(!invPanelOpen)
+                }}
+                className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#1a1a2a] border-2 border-[#2a2a4a] flex items-center justify-center text-lg active:bg-[#2a2a3a] active:scale-95 transition-all`}
+                title="Inventario"
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ============ INVENTORY PANEL OVERLAY ============ */}
+      {/* ============ INVENTORY MODAL OVERLAY ============ */}
       {screen === 'game' && invPanelOpen && S.current?.p && (
         <div 
-          className="absolute right-0 top-0 bottom-0 w-[30%] min-w-[180px] max-w-[300px] z-30 flex flex-col border-l border-[rgba(200,168,75,0.3)]"
-          style={{ background: 'rgba(10,12,8,0.95)' }}
+          className="absolute inset-0 z-40 flex items-center justify-center bg-[rgba(0,0,0,0.7)]"
+          onClick={() => setInvPanelOpen(false)}
         >
-          {/* Panel Header */}
-          <div className="flex items-center justify-between p-3 border-b border-[rgba(200,168,75,0.2)]">
-            <span className="text-[#c8a84b] text-sm font-bold tracking-wider">INVENTARIO</span>
-            <button 
-              onClick={() => setInvPanelOpen(false)}
-              className="w-6 h-6 rounded bg-[rgba(200,168,75,0.1)] text-[#c8a84b] flex items-center justify-center text-xs"
-            >
-              ✕
-            </button>
-          </div>
-          
-          {/* Items List */}
-          <div className="flex-1 p-3 overflow-y-auto">
-            {S.current.p.inv.length === 0 ? (
-              <div className="text-[#5a6a3a] text-xs text-center py-4">Inventario vacío</div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {S.current.p.inv.map((item, i) => (
-                  <button
-                    key={i}
-                    onClick={() => { useItem(i); setInvPanelOpen(false) }}
-                    className="flex items-center gap-3 p-2 rounded-lg bg-[rgba(40,30,20,0.6)] border border-[rgba(200,168,75,0.2)] hover:bg-[rgba(60,50,40,0.6)] transition-colors"
-                  >
-                    <span className="text-2xl">{ITEMS[item]?.icon || '?'}</span>
-                    <div className="text-left flex-1">
-                      <div className="text-[#c8a84b] text-xs font-medium capitalize">{item}</div>
-                      <div className="text-[#5a6a3a] text-[10px]">{ITEMS[item]?.desc}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div 
+            className="w-[85%] max-w-[340px] rounded-2xl border border-[rgba(200,168,75,0.3)] overflow-hidden"
+            style={{ background: 'rgba(10,12,8,0.98)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-[rgba(200,168,75,0.2)]">
+              <span className="text-[#c8a84b] text-base font-bold tracking-wider">INVENTARIO</span>
+              <button 
+                onClick={() => setInvPanelOpen(false)}
+                className="w-8 h-8 rounded-lg bg-[rgba(200,168,75,0.1)] text-[#c8a84b] flex items-center justify-center text-sm"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Items Grid */}
+            <div className="p-4 max-h-[300px] overflow-y-auto">
+              {S.current.p.inv.length === 0 ? (
+                <div className="text-[#5a6a3a] text-sm text-center py-8">Inventario vacío</div>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  {S.current.p.inv.map((item, i) => (
+                    <button
+                      key={i}
+                      onClick={() => { useItem(i); setInvPanelOpen(false) }}
+                      className="flex flex-col items-center gap-1 p-3 rounded-xl bg-[rgba(40,30,20,0.6)] border border-[rgba(200,168,75,0.2)] hover:bg-[rgba(60,50,40,0.6)] active:scale-95 transition-all"
+                    >
+                      <span className="text-3xl">{ITEMS[item]?.icon || '?'}</span>
+                      <span className="text-[#c8a84b] text-[10px] font-medium capitalize">{item}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Inventory Toggle Button (visible when panel is closed) */}
-      {screen === 'game' && !invPanelOpen && S.current?.p && S.current.p.inv.length > 0 && (
+      {/* Floating Inventory Bag Button (bottom-right, always visible) */}
+      {screen === 'game' && !invPanelOpen && S.current?.p && (
         <button
           onClick={() => setInvPanelOpen(true)}
-          className="absolute right-0 top-1/2 -translate-y-1/2 w-8 h-16 rounded-l-lg bg-[rgba(40,30,20,0.9)] border border-r-0 border-[rgba(200,168,75,0.3)] flex items-center justify-center z-20"
+          className="absolute bottom-28 right-3 w-12 h-12 rounded-full bg-[rgba(40,30,20,0.95)] border-2 border-[rgba(200,168,75,0.4)] flex items-center justify-center z-20 shadow-lg active:scale-95 transition-all"
+          style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
         >
-          <span className="text-[#c8a84b] text-lg">🎒</span>
+          <span className="text-xl">🎒</span>
+          {S.current.p.inv.length > 0 && (
+            <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#c8a84b] text-[#1a1408] text-[10px] font-bold flex items-center justify-center">
+              {S.current.p.inv.length}
+            </span>
+          )}
         </button>
       )}
 
