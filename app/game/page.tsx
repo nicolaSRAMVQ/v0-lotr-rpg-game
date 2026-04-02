@@ -152,6 +152,10 @@ interface Player {
   // Gandalf staff attack
   staffRayAnim: number
   staffRayTarget: { x: number; y: number } | null
+  // Level system
+  xp: number
+  maxXp: number
+  level: number
 }
 
 interface FX {
@@ -218,10 +222,14 @@ interface GameState {
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
 
+// XP table for leveling (index = level-1)
+const XP_TABLE = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200]
+
 export default function GamePage() {
   const rootRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const minimapRef = useRef<HTMLCanvasElement>(null)
+  const logRef = useRef<HTMLDivElement>(null)
   const S = useRef<GameState | null>(null)
   const animRef = useRef<number>(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -239,6 +247,10 @@ export default function GamePage() {
     const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
     S.current.logs.push({ type, msg, time })
     if (S.current.logs.length > 80) S.current.logs.shift()
+    // Auto-scroll to bottom
+    setTimeout(() => {
+      if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+    }, 10)
   }, [])
 
   const notify = useCallback((text: string, color: string) => {
@@ -421,6 +433,9 @@ export default function GamePage() {
         daggerAngle: 0,
         staffRayAnim: 0,
         staffRayTarget: null,
+        xp: 0,
+        maxXp: 100,
+        level: 1,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -924,7 +939,7 @@ export default function GamePage() {
         notify('⚠ OLEADA 1', '#e24b4a')
       }
       
-      // Wave delay for next Nazgul
+      // Wave delay for next Nazgul (N Nazgul per wave N)
       if (st.waveDelay > 0) {
         st.waveDelay--
         if (st.waveDelay === 60) {
@@ -932,11 +947,16 @@ export default function GamePage() {
         }
         if (st.waveDelay === 0 && st.wave < 10) {
           st.wave++
-          const newNaz = createNazgul(st.wave)
-          st.nazgul = newNaz
-          st.nazgulList.push(newNaz)
-          log('d', `¡OLEADA ${st.wave} - NUEVO NAZGÛL!`)
-          notify(`⚠ OLEADA ${st.wave}`, '#e24b4a')
+          const count = st.wave  // Wave 2 = 2 nazgul, Wave 3 = 3, etc.
+          for (let i = 0; i < count; i++) {
+            const newNaz = createNazgul(st.wave)
+            newNaz.x = (WW - 3 - i * 3) * T  // Spread them out
+            newNaz.y = (36 + i * 2) * T
+            st.nazgulList.push(newNaz)
+            if (!st.nazgul) st.nazgul = newNaz
+          }
+          log('d', `¡OLEADA ${st.wave} - ${count} NAZGÛL!`)
+          notify(`⚠ OLEADA ${st.wave} (x${count})`, '#e24b4a')
         }
       }
     }
@@ -1108,8 +1128,11 @@ export default function GamePage() {
       }
     }
 
-    // Nazgul AI (handle all)
-    const allNazgul = st.nazgul ? [st.nazgul] : []
+    // Nazgul AI (handle all - including nazgulList)
+    const allNazgul = [
+      ...(st.nazgul ? [st.nazgul] : []),
+      ...st.nazgulList.filter(n => n !== st.nazgul)
+    ]
     for (const naz of allNazgul) {
       if (!naz) continue
       
@@ -1158,19 +1181,48 @@ export default function GamePage() {
             })
           }
         }
-        // Frame 90: Nazgul is dead
+        // Frame 90: Nazgul is dead - award XP
         if (naz.deathFrame >= 90) {
+          // Award XP for kill
+          if (p) {
+            p.xp += 50 * naz.waveNum
+            st.fx.push({
+              x: naz.x,
+              y: naz.y - 30,
+              text: `+${50 * naz.waveNum} XP`,
+              color: '#c8a84b',
+              vy: -1.2,
+              life: 50,
+            })
+            // Check level up
+            while (p.level < 10 && p.xp >= XP_TABLE[p.level]) {
+              p.level++
+              p.maxhp += 1
+              p.hp = Math.min(p.hp + 1, p.maxhp)
+              if (p.level % 2 === 0) p.dmg += 1
+              if (p.level % 3 === 0) p.spd += 0.1
+              log('e', `¡Subiste al nivel ${p.level}! +1 HP max${p.level % 2 === 0 ? ', +1 DMG' : ''}${p.level % 3 === 0 ? ', +SPD' : ''}`)
+              notify(`NIVEL ${p.level}`, '#c8a84b')
+              st.screenFlash = 4
+            }
+          }
+          
           // Remove this nazgul
           if (st.nazgul === naz) {
             st.nazgul = null
           }
           st.nazgulList = st.nazgulList.filter(n => n !== naz)
           
-          // Check victory or spawn next wave
-          if (!st.nazgul && st.nazgulList.length === 0) {
+          // Check victory or spawn next wave (all Nazgul must be dead)
+          const aliveNazgul = st.nazgulList.filter(n => n.state !== 'dying' && n.hp > 0).length
+          if (!st.nazgul && aliveNazgul === 0) {
+            // Bonus XP for completing wave
+            if (p && st.gameMode === 'horde') {
+              p.xp += 80
+            }
             if (st.gameMode === 'horde' && st.wave < 10) {
               st.waveDelay = 180
-              log('s', `Oleada ${st.wave} completada. Prepárate para la siguiente...`)
+              log('s', `Oleada ${st.wave} completada. +80 XP`)
             } else {
               const saved = st.villagers.filter(v => v.state !== 'captured').length
               log('e', `¡VICTORIA! Aldeanos salvados: ${saved}/8`)
@@ -2201,12 +2253,12 @@ export default function GamePage() {
   return (
     <div
       ref={rootRef}
-      className="relative w-full h-dvh min-h-[500px] max-h-[900px] bg-[#0a0804] flex flex-col overflow-hidden select-none"
-      style={{ touchAction: 'pan-x pan-y' }}
+      className="relative w-full bg-[#0a0804] flex flex-col overflow-hidden select-none"
+      style={{ touchAction: 'manipulation', height: '100dvh' }}
     >
       {/* ============ TOP HUD ZONE ============ */}
       {screen === 'game' && S.current?.p && (
-        <div className="flex-none p-2 pb-0 z-10">
+        <div className="flex-none px-2 pt-1 pb-0 z-10">
           {/* Top Row: Minimap + Status */}
           <div className="flex items-start justify-between">
             {/* Minimap */}
@@ -2216,49 +2268,62 @@ export default function GamePage() {
             
             {/* Status Text */}
             <div className="text-right">
-              <div className="text-[#c8a84b] text-sm tracking-[1px] font-bold">
+              <div className="text-[#c8a84b] text-xs tracking-[1px] font-bold">
                 {S.current.gameMode === 'horde' && S.current.wave > 0 
                   ? `OLEADA ${S.current.wave}/10`
-                  : CHARS[S.current.p.char].name
+                  : `${CHARS[S.current.p.char].name} Nv.${S.current.p.level}`
                 }
               </div>
               <div className="flex gap-0.5 justify-end mt-0.5">
                 {Array.from({ length: S.current.p.maxhp }).map((_, i) => (
                   <div
                     key={i}
-                    className={`w-2 h-2 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
+                    className={`w-1.5 h-1.5 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
                   />
                 ))}
               </div>
-              <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
+              {/* XP Bar */}
+              <div className="flex items-center gap-1 mt-0.5 justify-end">
+                <div className="text-[#5a6a3a] text-[8px]">XP</div>
+                <div className="h-1 rounded-full bg-[#2a1a10] overflow-hidden" style={{ width: '60px' }}>
+                  <div
+                    className="h-full rounded-full bg-[#c8a84b] transition-all duration-300"
+                    style={{ 
+                      width: `${Math.min(100, ((S.current.p.xp - (XP_TABLE[S.current.p.level - 2] || 0)) / (XP_TABLE[S.current.p.level - 1] - (XP_TABLE[S.current.p.level - 2] || 0))) * 100)}%` 
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="text-[#8aaa6e] text-[10px] mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
               </div>
               {S.current.heroMode && (
-                <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
+                <div className="text-[#c8a84b] text-[8px] animate-pulse">INMORTAL</div>
               )}
               {S.current.p.ringActive > 0 && (
-                <div className="text-[#c8a84b] text-[10px] animate-pulse">INVISIBLE</div>
+                <div className="text-[#c8a84b] text-[8px] animate-pulse">INVISIBLE</div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ============ TERMINAL ZONE (25% height, scrollable, interactive) ============ */}
+      {/* ============ TERMINAL ZONE (compact 2 lines) ============ */}
       {screen === 'game' && S.current && (
         <div 
           className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
           style={{ 
             background: 'rgba(0,0,0,0.85)', 
-            height: isCompact ? '20%' : '25%',
-            minHeight: isCompact ? 100 : 120,
-            maxHeight: 220,
+            height: 'auto',
+            minHeight: 0,
+            maxHeight: 130,
           }}
         >
-          {/* Terminal Log (scrollable) */}
+          {/* Terminal Log (2 lines max, scrollable) */}
           <div 
-            className="flex-1 overflow-y-auto px-3 py-2 font-mono text-sm leading-relaxed"
-            style={{ scrollBehavior: 'smooth' }}
+            ref={logRef}
+            className="overflow-y-auto px-2 py-1 font-mono leading-snug"
+            style={{ maxHeight: '44px', fontSize: '11px' }}
           >
             {S.current.logs.map((l, i) => (
               <div
@@ -2278,8 +2343,8 @@ export default function GamePage() {
           </div>
           
           {/* Terminal Input */}
-          <div className="flex-none flex items-center h-10 px-3 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.3)]">
-            <span className="text-[#5a6a3a] mr-2 text-sm">{'>'}</span>
+          <div className="flex-none flex items-center h-8 px-2 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.3)]">
+            <span className="text-[#5a6a3a] mr-2 text-xs">{'>'}</span>
             <input
               ref={inputRef}
               type="text"
@@ -2288,33 +2353,33 @@ export default function GamePage() {
               onKeyDown={handleTermKeyDown}
               onFocus={() => { if (S.current) S.current.gamePaused = true }}
               onBlur={() => { if (S.current) S.current.gamePaused = false }}
-              placeholder="/mods o escribe aquí..."
-              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a] text-sm"
+              placeholder="/mods..."
+              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a] text-xs"
               style={{ fontSize: '16px' }}
             />
           </div>
           
           {/* Terminal Options (contextual buttons) */}
           {termContext === 'interaction' && (
-            <div className="flex-none flex gap-2 p-2 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
+            <div className="flex-none flex gap-1.5 p-1.5 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
               <button
-                onTouchStart={(e) => e.preventDefault()}
+                onTouchStart={(e) => { e.preventDefault(); tryInteract() }}
                 onClick={(e) => { e.preventDefault(); tryInteract() }}
-                className="flex-1 py-2 rounded-lg text-sm font-medium bg-[rgba(90,138,58,0.2)] text-[#8aaa6e] border border-[#3a4a2a] active:bg-[rgba(90,138,58,0.4)]"
+                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(90,138,58,0.2)] text-[#8aaa6e] border border-[#3a4a2a] active:bg-[rgba(90,138,58,0.4)]"
               >
                 Hablar
               </button>
               <button
                 onTouchStart={(e) => e.preventDefault()}
-                onClick={(e) => { e.preventDefault(); /* pedir ayuda */ }}
-                className="flex-1 py-2 rounded-lg text-sm font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
+                onClick={(e) => { e.preventDefault(); }}
+                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
               >
-                Pedir ayuda
+                Ayuda
               </button>
               <button
-                onTouchStart={(e) => e.preventDefault()}
+                onTouchStart={(e) => { e.preventDefault(); closeDlg() }}
                 onClick={(e) => { e.preventDefault(); closeDlg() }}
-                className="flex-1 py-2 rounded-lg text-sm font-medium bg-[rgba(60,50,40,0.3)] text-[#6a5a4a] border border-[#3a3a2a] active:bg-[rgba(60,50,40,0.5)]"
+                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(60,50,40,0.3)] text-[#6a5a4a] border border-[#3a3a2a] active:bg-[rgba(60,50,40,0.5)]"
               >
                 Ignorar
               </button>
@@ -2323,16 +2388,17 @@ export default function GamePage() {
           
           {/* Dialog options in terminal */}
           {S.current.dlg.active && (
-            <div className="flex-none flex flex-col gap-1 p-2 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
-              <div className="text-[#c8a84b] text-xs font-bold mb-1">{S.current.dlg.speaker}:</div>
-              <div className="text-[#8aaa6e] text-sm mb-2">{S.current.dlg.lines[S.current.dlg.lineIdx]}</div>
+            <div className="flex-none flex flex-col gap-1 p-1.5 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
+              <div className="text-[#c8a84b] text-[10px] font-bold">{S.current.dlg.speaker}:</div>
+              <div className="text-[#8aaa6e] text-xs mb-1">{S.current.dlg.lines[S.current.dlg.lineIdx]}</div>
               {S.current.dlg.lineIdx === S.current.dlg.lines.length - 1 ? (
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
                   {S.current.dlg.opts.map((opt, i) => (
                     <button
                       key={i}
+                      onTouchStart={() => selectDlgOpt(opt)}
                       onClick={() => selectDlgOpt(opt)}
-                      className="flex-1 py-2 rounded-lg text-sm font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
+                      className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
                     >
                       {opt.l}
                     </button>
@@ -2340,8 +2406,9 @@ export default function GamePage() {
                 </div>
               ) : (
                 <button
+                  onTouchStart={advanceDlg}
                   onClick={advanceDlg}
-                  className="py-2 rounded-lg text-sm font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
+                  className="py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
                 >
                   Continuar...
                 </button>
@@ -2352,7 +2419,10 @@ export default function GamePage() {
       )}
 
       {/* ============ GAME AREA (Canvas) ============ */}
-      <div className="flex-1 relative min-h-[300px] flex items-center justify-center">
+      <div 
+        className="flex-1 relative flex items-center justify-center"
+        onClick={() => setInvPanelOpen(false)}
+      >
         <canvas
           ref={canvasRef}
           className="block w-full h-full"
@@ -2367,7 +2437,36 @@ export default function GamePage() {
 
       {/* ============ BOTTOM HUD ZONE ============ */}
       {screen === 'game' && S.current && (
-        <div className="flex-none p-3 flex items-end justify-between gap-3 z-10">
+        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative">
+          {/* Inline Inventory Panel - expands upward */}
+          {invPanelOpen && S.current.p && (
+            <div
+              className="absolute bottom-full right-0 mb-1 w-[200px] rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
+              style={{ background: 'rgba(10,12,8,0.97)' }}
+            >
+              <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(200,168,75,0.15)]">
+                <span className="text-[#c8a84b] text-xs font-bold tracking-wider">INVENTARIO</span>
+                <button onClick={() => setInvPanelOpen(false)} className="text-[#5a6a3a] text-xs">X</button>
+              </div>
+              {S.current.p.inv.length === 0 ? (
+                <div className="text-[#5a6a3a] text-xs text-center py-3">Vacio</div>
+              ) : (
+                <div className="flex flex-wrap gap-2 p-2">
+                  {S.current.p.inv.map((item, i) => (
+                    <button
+                      key={i}
+                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); useItem(i); setInvPanelOpen(false) }}
+                      onClick={() => { useItem(i); setInvPanelOpen(false) }}
+                      className="flex flex-col items-center gap-0.5 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all"
+                    >
+                      <span style={{ fontSize: '20px' }}>{ITEMS[item]?.icon || '?'}</span>
+                      <span className="text-[#c8a84b] text-[9px] capitalize">{item}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* Joystick (left) - 90px - Pointer Events for iOS multitouch */}
           <div
             ref={joystickRef}
@@ -2512,66 +2611,7 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* ============ INVENTORY MODAL OVERLAY ============ */}
-      {screen === 'game' && invPanelOpen && S.current?.p && (
-        <div 
-          className="absolute inset-0 z-40 flex items-center justify-center bg-[rgba(0,0,0,0.7)]"
-          onClick={() => setInvPanelOpen(false)}
-        >
-          <div 
-            className="w-[85%] max-w-[340px] rounded-2xl border border-[rgba(200,168,75,0.3)] overflow-hidden"
-            style={{ background: 'rgba(10,12,8,0.98)' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b border-[rgba(200,168,75,0.2)]">
-              <span className="text-[#c8a84b] text-base font-bold tracking-wider">INVENTARIO</span>
-              <button 
-                onClick={() => setInvPanelOpen(false)}
-                className="w-8 h-8 rounded-lg bg-[rgba(200,168,75,0.1)] text-[#c8a84b] flex items-center justify-center text-sm"
-              >
-                ✕
-              </button>
-            </div>
-            
-            {/* Items Grid */}
-            <div className="p-4 max-h-[300px] overflow-y-auto">
-              {S.current.p.inv.length === 0 ? (
-                <div className="text-[#5a6a3a] text-sm text-center py-8">Inventario vacío</div>
-              ) : (
-                <div className="grid grid-cols-3 gap-3">
-                  {S.current.p.inv.map((item, i) => (
-                    <button
-                      key={i}
-                      onClick={() => { useItem(i); setInvPanelOpen(false) }}
-                      className="flex flex-col items-center gap-1 p-3 rounded-xl bg-[rgba(40,30,20,0.6)] border border-[rgba(200,168,75,0.2)] hover:bg-[rgba(60,50,40,0.6)] active:scale-95 transition-all"
-                    >
-                      <span className="text-3xl">{ITEMS[item]?.icon || '?'}</span>
-                      <span className="text-[#c8a84b] text-[10px] font-medium capitalize">{item}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Floating Inventory Bag Button (bottom-right, always visible) */}
-      {screen === 'game' && !invPanelOpen && S.current?.p && (
-        <button
-          onClick={() => setInvPanelOpen(true)}
-          className="absolute bottom-28 right-3 w-12 h-12 rounded-full bg-[rgba(40,30,20,0.95)] border-2 border-[rgba(200,168,75,0.4)] flex items-center justify-center z-20 shadow-lg active:scale-95 transition-all"
-          style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
-        >
-          <span className="text-xl">🎒</span>
-          {S.current.p.inv.length > 0 && (
-            <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#c8a84b] text-[#1a1408] text-[10px] font-bold flex items-center justify-center">
-              {S.current.p.inv.length}
-            </span>
-          )}
-        </button>
-      )}
 
       {/* ============ MOD MENU OVERLAY ============ */}
       {screen === 'game' && S.current?.modMenuOpen && (
