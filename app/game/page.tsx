@@ -21,6 +21,7 @@ const ITEMS: Record<string, { icon: string; desc: string }> = {
   espada: { icon: '⚔️', desc: 'Andúril. Daño aumentado.' },
   baston: { icon: '🪄', desc: 'Bastón de mago. Área de ataque.' },
   miruvor: { icon: '🧴', desc: 'Cordial élfico. Restaura HP completo.' },
+  espada_rota: { icon: '🗡️', desc: 'Espada rota. Daño reducido.' },
 }
 
 // ============ VILLAGER DEFINITIONS ============
@@ -42,10 +43,34 @@ const HOLES = [
   { tx: 45, ty: 58 }, { tx: 60, ty: 54 }, { tx: 75, ty: 56 }, { tx: 82, ty: 22 },
 ]
 
+// ============ MOD COMMANDS ============
+const MOD_COMMANDS = [
+  { cmd: '/horda', desc: 'Activa modo horda' },
+  { cmd: '/heroe', desc: 'Modo héroe (inmortal)' },
+  { cmd: '/arma espada', desc: 'Dropea espada' },
+  { cmd: '/arma baculo', desc: 'Dropea báculo' },
+  { cmd: '/arma daga', desc: 'Dropea daga' },
+  { cmd: '/invocar gandalf', desc: 'Invoca a Gandalf' },
+  { cmd: '/invocar aragorn', desc: 'Invoca a Aragorn' },
+  { cmd: '/invocar legolas', desc: 'Invoca a Legolas' },
+  { cmd: '/modo explorar', desc: 'Modo exploración libre' },
+  { cmd: '/nazgul 1', desc: 'Spawna 1 Nazgûl' },
+  { cmd: '/nazgul 3', desc: 'Spawna 3 Nazgûl' },
+]
+
 // ============ TYPES ============
 type TileType = 'grass' | 'path' | 'tree' | 'flower' | 'yard' | 'door' | 'mill'
 type Tile = { type: TileType; variant?: number }
 type Dir = 'down' | 'up' | 'left' | 'right'
+type GameMode = 'exploration' | 'horde'
+type TermContext = 'exploration' | 'combat' | 'interaction' | 'dialog'
+
+interface DroppedItem {
+  x: number
+  y: number
+  item: string
+  bouncePhase: number
+}
 
 interface Villager {
   name: string
@@ -74,12 +99,14 @@ interface Nazgul {
   maxhp: number
   spd: number
   dmg: number
-  state: 'hunt' | 'chase_player' | 'flee_gandalf'
+  state: 'hunt' | 'chase_player' | 'flee_gandalf' | 'confused' | 'dying'
   dir: Dir
   frame: number
   atkT: number
   poweredUp: number
   invT: number
+  deathFrame: number
+  waveNum: number
 }
 
 interface GandalfAlly {
@@ -96,6 +123,8 @@ interface GandalfAlly {
   shieldActive: number
   attackCooldown: number
   talked: boolean
+  rayTarget: { x: number; y: number } | null
+  rayFrames: number
 }
 
 interface Player {
@@ -111,8 +140,12 @@ interface Player {
   frame: number
   inv: string[]
   ringActive: number
+  ringShimmer: number
   invT: number
   atkCd: number
+  sweepAnim: number
+  sweepAngle: number
+  deathFrame: number
 }
 
 interface FX {
@@ -131,6 +164,7 @@ interface Particle {
   vy: number
   color: string
   life: number
+  maxLife: number
 }
 
 interface DlgState {
@@ -148,6 +182,7 @@ interface GameState {
   cam: { x: number; y: number }
   villagers: Villager[]
   nazgul: Nazgul | null
+  nazgulList: Nazgul[]
   gandalfAlly: GandalfAlly | null
   invNaz: boolean
   invTimer: number
@@ -161,8 +196,17 @@ interface GameState {
   joy: { active: boolean; dx: number; dy: number }
   gameActive: boolean
   termOpen: boolean
+  termInput: string
+  modMenuOpen: boolean
   frameCount: number
   logs: { type: string; msg: string; time: string }[]
+  gameMode: GameMode
+  heroMode: boolean
+  wave: number
+  waveDelay: number
+  droppedItems: DroppedItem[]
+  screenFlash: number
+  groundMarks: { x: number; y: number; alpha: number }[]
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
@@ -173,9 +217,12 @@ export default function GamePage() {
   const minimapRef = useRef<HTMLCanvasElement>(null)
   const S = useRef<GameState | null>(null)
   const animRef = useRef<number>(0)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const [screen, setScreen] = useState<'charsel' | 'game' | 'dead' | 'gameover' | 'win'>('charsel')
   const [selectedChar, setSelectedChar] = useState<string | null>(null)
+  const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
+  const [, forceUpdate] = useState(0)
 
   // ============ HELPERS ============
   const log = useCallback((type: string, msg: string) => {
@@ -199,10 +246,8 @@ export default function GamePage() {
       for (let x = 0; x < WW; x++) {
         const variant = (x + y) % 2
         let type: TileType = 'grass'
-        // Roads
         if (y === 38 || y === 39) type = 'path'
         if ([12, 25, 40, 55, 70, 85].includes(x) && y >= 15 && y <= 60) type = 'path'
-        // Random trees and flowers
         if (type === 'grass') {
           const r = Math.random()
           if (r < 0.02) type = 'tree'
@@ -212,7 +257,6 @@ export default function GamePage() {
       }
     }
 
-    // Place hobbit holes
     const placeHole = (tx: number, ty: number) => {
       for (let dy = -3; dy <= 3; dy++) {
         for (let dx = -3; dx <= 3; dx++) {
@@ -223,7 +267,6 @@ export default function GamePage() {
         }
       }
       if (ty >= 0 && ty < WH && tx >= 0 && tx < WW) map[ty][tx] = { type: 'door' }
-      // Path to main road
       let py = ty
       const targetY = ty < 38 ? 38 : 39
       while (py !== targetY && py >= 0 && py < WH) {
@@ -234,7 +277,6 @@ export default function GamePage() {
 
     HOLES.forEach(h => placeHole(h.tx, h.ty))
 
-    // Mill
     const millX = 45, millY = 31
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
@@ -245,7 +287,6 @@ export default function GamePage() {
       }
     }
 
-    // Plaza
     for (let dy = -4; dy <= 4; dy++) {
       for (let dx = -4; dx <= 4; dx++) {
         const nx = 50 + dx, ny = 35 + dy
@@ -293,13 +334,17 @@ export default function GamePage() {
     })
   }, [])
 
-  const spawnNazgul = useCallback((): Nazgul => {
+  const createNazgul = useCallback((waveNum: number = 1): Nazgul => {
+    const baseSpd = 0.7
+    const baseHp = 20
+    const spdBonus = (waveNum - 1) * 0.1
+    const hpBonus = (waveNum - 1) * 2
     return {
       x: (WW - 3) * T,
       y: 38 * T,
-      hp: 20,
-      maxhp: 20,
-      spd: 1.1,
+      hp: baseHp + hpBonus,
+      maxhp: baseHp + hpBonus,
+      spd: baseSpd + spdBonus,
       dmg: 4,
       state: 'hunt',
       dir: 'left',
@@ -307,6 +352,8 @@ export default function GamePage() {
       atkT: 0,
       poweredUp: 0,
       invT: 0,
+      deathFrame: 0,
+      waveNum,
     }
   }, [])
 
@@ -330,11 +377,13 @@ export default function GamePage() {
       shieldActive: 0,
       attackCooldown: 0,
       talked: false,
+      rayTarget: null,
+      rayFrames: 0,
     }
   }, [])
 
   // ============ GAME START ============
-  const startGame = useCallback((charKey: string) => {
+  const startGame = useCallback((charKey: string, mode: GameMode) => {
     const charDef = CHARS[charKey]
     const map = buildMap()
     const startX = 50 * T, startY = 38 * T
@@ -354,15 +403,20 @@ export default function GamePage() {
         frame: 0,
         inv: [...charDef.startItems],
         ringActive: 0,
+        ringShimmer: 0,
         invT: 0,
         atkCd: 0,
+        sweepAnim: 0,
+        sweepAngle: 0,
+        deathFrame: 0,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
       nazgul: null,
+      nazgulList: [],
       gandalfAlly: spawnGandalfAlly(),
       invNaz: false,
-      invTimer: 360,
+      invTimer: mode === 'exploration' ? 999999 : 360,
       invWarned: false,
       keys: new Set(),
       ePrev: false,
@@ -372,12 +426,26 @@ export default function GamePage() {
       dlg: { active: false, speaker: '', lines: [], lineIdx: 0, opts: [] },
       joy: { active: false, dx: 0, dy: 0 },
       gameActive: true,
-      termOpen: false,
+      termOpen: true,
+      termInput: '',
+      modMenuOpen: false,
       frameCount: 0,
       logs: [],
+      gameMode: mode,
+      heroMode: false,
+      wave: 0,
+      waveDelay: 0,
+      droppedItems: [],
+      screenFlash: 0,
+      groundMarks: [],
     }
 
-    log('s', 'Bienvenido a Hobbiton. Protege a los aldeanos.')
+    if (mode === 'exploration') {
+      log('s', 'Modo Exploración. Usa /nazgul para invocar enemigos.')
+    } else {
+      log('s', 'Modo Horda. Sobrevive 10 oleadas.')
+    }
+    log('i', 'Bienvenido a Hobbiton. Protege a los aldeanos.')
     setScreen('game')
   }, [buildMap, spawnVillagers, spawnGandalfAlly, log])
 
@@ -385,6 +453,7 @@ export default function GamePage() {
     if (!S.current || !S.current.p) return
     S.current.p.hp = S.current.p.maxhp
     S.current.p.invT = 120
+    S.current.p.deathFrame = 0
     S.current.gameActive = true
     log('s', 'Has renacido. ¡Continúa la lucha!')
     setScreen('game')
@@ -395,6 +464,92 @@ export default function GamePage() {
     setSelectedChar(null)
     setScreen('charsel')
   }, [])
+
+  // ============ GET TERMINAL CONTEXT ============
+  const getTermContext = useCallback((): TermContext => {
+    if (!S.current || !S.current.p) return 'exploration'
+    if (S.current.dlg.active) return 'dialog'
+    
+    const p = S.current.p
+    const naz = S.current.nazgul
+    
+    // Check combat (Nazgul within 12 tiles)
+    if (naz && naz.hp > 0 && naz.state !== 'dying') {
+      const dx = naz.x - p.x, dy = naz.y - p.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < 12 * T) return 'combat'
+    }
+    
+    // Check interaction (NPC within 2 tiles)
+    for (const v of S.current.villagers) {
+      if (v.state === 'captured') continue
+      const dx = v.x - p.x, dy = v.y - p.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < 2 * T) return 'interaction'
+    }
+    
+    const g = S.current.gandalfAlly
+    if (g && !g.talked) {
+      const dx = g.x - p.x, dy = g.y - p.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < 2.5 * T) return 'interaction'
+    }
+    
+    return 'exploration'
+  }, [])
+
+  // ============ MOD SYSTEM ============
+  const executeCommand = useCallback((cmd: string) => {
+    if (!S.current) return
+    const st = S.current
+    
+    if (cmd === '/horda') {
+      st.gameMode = 'horde'
+      st.wave = 0
+      st.waveDelay = 60
+      log('s', 'Modo Horda activado.')
+      notify('MODO HORDA', '#e24b4a')
+    } else if (cmd === '/heroe') {
+      st.heroMode = !st.heroMode
+      log('s', st.heroMode ? 'Modo Héroe ON - Inmortal' : 'Modo Héroe OFF')
+      notify(st.heroMode ? 'INMORTAL' : 'MORTAL', '#c8a84b')
+    } else if (cmd.startsWith('/arma ')) {
+      const tipo = cmd.replace('/arma ', '')
+      const item = tipo === 'espada' ? 'espada' : tipo === 'baculo' ? 'baston' : 'espada_rota'
+      if (st.p) {
+        st.droppedItems.push({
+          x: st.p.x + (Math.random() - 0.5) * T,
+          y: st.p.y + (Math.random() - 0.5) * T,
+          item,
+          bouncePhase: 0,
+        })
+        log('s', `Arma dropeada: ${item}`)
+      }
+    } else if (cmd === '/modo explorar') {
+      st.gameMode = 'exploration'
+      st.nazgul = null
+      st.nazgulList = []
+      log('s', 'Modo Exploración activado.')
+      notify('EXPLORACIÓN', '#5a8a3a')
+    } else if (cmd.startsWith('/nazgul ')) {
+      const n = parseInt(cmd.replace('/nazgul ', '')) || 1
+      for (let i = 0; i < n; i++) {
+        const naz = createNazgul(st.wave + 1)
+        naz.x = (WW - 3 - i * 2) * T
+        st.nazgulList.push(naz)
+        if (!st.nazgul) st.nazgul = naz
+      }
+      log('d', `¡${n} NAZGÛL INVOCADOS!`)
+      notify('⚠ NAZGÛL', '#e24b4a')
+    } else if (cmd.startsWith('/invocar ')) {
+      const name = cmd.replace('/invocar ', '')
+      log('s', `Invocando a ${name}... (próximamente)`)
+    }
+    
+    st.termInput = ''
+    st.modMenuOpen = false
+    forceUpdate(n => n + 1)
+  }, [log, notify, createNazgul])
 
   // ============ DIALOG SYSTEM ============
   const openGandalfDlg = useCallback(() => {
@@ -408,7 +563,8 @@ export default function GamePage() {
       opts: [{ l: 'Gracias, Gandalf.', action: 'close' }],
     }
     S.current.gandalfAlly.talked = true
-    log('n', 'Gandalf te habla sobre el peligro que se acerca.')
+    log('e', 'Gandalf te habla sobre el peligro que se acerca.')
+    forceUpdate(n => n + 1)
   }, [log])
 
   const openVillagerDlg = useCallback((v: Villager) => {
@@ -432,7 +588,8 @@ export default function GamePage() {
       opts,
       target: v,
     }
-    log('n', `${v.name} te saluda.`)
+    log('e', `${v.name} te saluda.`)
+    forceUpdate(n => n + 1)
   }, [log])
 
   const advanceDlg = useCallback(() => {
@@ -440,6 +597,7 @@ export default function GamePage() {
     const dlg = S.current.dlg
     if (dlg.lineIdx < dlg.lines.length - 1) {
       dlg.lineIdx++
+      forceUpdate(n => n + 1)
     }
   }, [])
 
@@ -461,14 +619,16 @@ export default function GamePage() {
       dlg.target.state = 'walk'
       dlg.target.patrolIdx = 0
       dlg.target.patrol = [{ x: dlg.target.homeX, y: dlg.target.homeY }]
-      log('n', `${dlg.target.name} se queda cerca de casa.`)
+      log('i', `${dlg.target.name} se queda cerca de casa.`)
       dlg.active = false
     }
+    forceUpdate(n => n + 1)
   }, [log, notify])
 
   const closeDlg = useCallback(() => {
     if (!S.current) return
     S.current.dlg.active = false
+    forceUpdate(n => n + 1)
   }, [])
 
   // ============ ITEM USE ============
@@ -485,9 +645,16 @@ export default function GamePage() {
       notify('+3 HP', '#5a6a3a')
     } else if (item === 'anillo') {
       p.ringActive = 300
-      p.inv.splice(idx, 1)
+      p.ringShimmer = 300
       log('e', '¡El Anillo te hace invisible!')
       notify('💍 INVISIBLE', '#c8a84b')
+      // Confuse all Nazgul
+      if (S.current.nazgul && S.current.nazgul.hp > 0) {
+        S.current.nazgul.state = 'confused'
+      }
+      for (const naz of S.current.nazgulList) {
+        if (naz.hp > 0) naz.state = 'confused'
+      }
     } else if (item === 'miruvor') {
       p.hp = p.maxhp
       p.inv.splice(idx, 1)
@@ -498,6 +665,15 @@ export default function GamePage() {
     }
   }, [log, notify])
 
+  const useRing = useCallback(() => {
+    if (!S.current || !S.current.p) return
+    const p = S.current.p
+    const ringIdx = p.inv.indexOf('anillo')
+    if (ringIdx !== -1) {
+      useItem(ringIdx)
+    }
+  }, [useItem])
+
   // ============ ATTACK ============
   const doAttack = useCallback(() => {
     if (!S.current || !S.current.p || S.current.dlg.active) return
@@ -505,11 +681,44 @@ export default function GamePage() {
     if (p.atkCd > 0) return
     p.atkCd = 28
 
-    const naz = S.current.nazgul
-    if (naz && naz.hp > 0) {
+    // Visual power based on character
+    if (p.char === 'aragorn') {
+      // Arc sweep animation
+      p.sweepAnim = 20
+      const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
+      p.sweepAngle = dirAngles[p.dir]
+      
+      // Spawn sweep particles
+      for (let i = 0; i < 10; i++) {
+        const angle = p.sweepAngle - Math.PI / 3 + (Math.PI * 2 / 3) * (i / 10)
+        S.current.parts.push({
+          x: p.x + Math.cos(angle) * T * 2,
+          y: p.y + Math.sin(angle) * T * 2,
+          vx: Math.cos(angle) * 1.5,
+          vy: Math.sin(angle) * 1.5,
+          color: '#c8c8d8',
+          life: 15,
+          maxLife: 15,
+        })
+      }
+    } else if (p.char === 'frodo' && p.inv.includes('anillo')) {
+      // Frodo can activate ring with attack too
+      useRing()
+      return
+    }
+
+    // Check all Nazgul
+    const allNaz = S.current.nazgul ? [S.current.nazgul, ...S.current.nazgulList.filter(n => n !== S.current!.nazgul)] : S.current.nazgulList
+    
+    for (const naz of allNaz) {
+      if (!naz || naz.hp <= 0 || naz.state === 'dying') continue
       const dx = naz.x - p.x, dy = naz.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
-      if (dist < p.range * T) {
+      
+      // Aragorn has wider range with sweep
+      const effectiveRange = p.char === 'aragorn' ? p.range * 1.2 : p.range
+      
+      if (dist < effectiveRange * T) {
         naz.hp -= p.dmg
         naz.invT = 10
         S.current.fx.push({
@@ -523,32 +732,20 @@ export default function GamePage() {
         log('d', `¡Atacas al Nazgûl! -${p.dmg} HP. (${Math.max(0, naz.hp)}/${naz.maxhp})`)
 
         if (naz.hp <= 0) {
-          // Victory!
-          for (let i = 0; i < 8; i++) {
-            S.current.parts.push({
-              x: naz.x,
-              y: naz.y,
-              vx: (Math.random() - 0.5) * 4,
-              vy: (Math.random() - 0.5) * 4,
-              color: '#2a0a30',
-              life: 40,
-            })
-          }
-          const saved = S.current.villagers.filter(v => v.state !== 'captured').length
-          log('e', `¡NAZGÛL DERROTADO! La Comarca está a salvo. Aldeanos salvados: ${saved}/8`)
-          S.current.gameActive = false
-          setScreen('win')
+          // Start death animation instead of instant win
+          naz.state = 'dying'
+          naz.deathFrame = 0
+          log('e', '¡El Nazgûl cae!')
         }
       }
     }
-  }, [log])
+  }, [log, useRing])
 
   // ============ INTERACTION ============
   const tryInteract = useCallback(() => {
     if (!S.current || !S.current.p) return
     const p = S.current.p
 
-    // Check Gandalf
     const g = S.current.gandalfAlly
     if (g && !g.talked) {
       const dx = g.x - p.x, dy = g.y - p.y
@@ -559,7 +756,6 @@ export default function GamePage() {
       }
     }
 
-    // Check villagers
     for (const v of S.current.villagers) {
       if (v.state === 'captured') continue
       const dx = v.x - p.x, dy = v.y - p.y
@@ -584,7 +780,6 @@ export default function GamePage() {
     const ny = entity.y + (dy / dist) * spd
     if (!isSolid(nx, entity.y)) entity.x = nx
     if (!isSolid(entity.x, ny)) entity.y = ny
-    // Update direction
     if (Math.abs(dx) > Math.abs(dy)) {
       entity.dir = dx > 0 ? 'right' : 'left'
     } else {
@@ -600,27 +795,51 @@ export default function GamePage() {
     const p = st.p!
     st.frameCount++
 
+    // Screen flash
+    if (st.screenFlash > 0) st.screenFlash--
+
     // Timers
     if (p.invT > 0) p.invT--
     if (p.atkCd > 0) p.atkCd--
     if (p.ringActive > 0) p.ringActive--
+    if (p.ringShimmer > 0) p.ringShimmer--
+    if (p.sweepAnim > 0) p.sweepAnim--
 
     // Scheduled events
-    if (st.frameCount === 180) {
+    if (st.frameCount === 180 && st.gameMode === 'horde') {
       log('i', 'Habla con Gandalf antes de que llegue el Nazgûl.')
     }
-    if (st.frameCount === 300) {
+    if (st.frameCount === 300 && st.gameMode === 'horde') {
       log('d', 'Se escuchan cascos en la distancia...')
       st.invWarned = true
     }
 
-    // Spawn Nazgul
-    st.invTimer--
-    if (st.invTimer <= 0 && !st.nazgul) {
-      st.nazgul = spawnNazgul()
-      st.invNaz = true
-      log('d', '¡UN NAZGÛL HA ENTRADO EN HOBBITON!')
-      notify('⚠️ NAZGÛL', '#e24b4a')
+    // Spawn Nazgul (horde mode)
+    if (st.gameMode === 'horde') {
+      st.invTimer--
+      if (st.invTimer <= 0 && !st.nazgul) {
+        st.wave = 1
+        st.nazgul = createNazgul(1)
+        st.invNaz = true
+        log('d', '¡OLEADA 1 - UN NAZGÛL HA ENTRADO EN HOBBITON!')
+        notify('⚠ OLEADA 1', '#e24b4a')
+      }
+      
+      // Wave delay for next Nazgul
+      if (st.waveDelay > 0) {
+        st.waveDelay--
+        if (st.waveDelay === 60) {
+          log('d', '¡Se acerca otra oleada!')
+        }
+        if (st.waveDelay === 0 && st.wave < 10) {
+          st.wave++
+          const newNaz = createNazgul(st.wave)
+          st.nazgul = newNaz
+          st.nazgulList.push(newNaz)
+          log('d', `¡OLEADA ${st.wave} - NUEVO NAZGÛL!`)
+          notify(`⚠ OLEADA ${st.wave}`, '#e24b4a')
+        }
+      }
     }
 
     // Player movement
@@ -654,6 +873,20 @@ export default function GamePage() {
       }
     }
 
+    // Pick up dropped items
+    st.droppedItems = st.droppedItems.filter(di => {
+      di.bouncePhase += 0.1
+      const pdx = di.x - p.x, pdy = di.y - p.y
+      const pdist = Math.sqrt(pdx * pdx + pdy * pdy)
+      if (pdist < T && p.inv.length < 5) {
+        p.inv.push(di.item)
+        log('s', `Recoges ${ITEMS[di.item]?.icon || di.item}`)
+        notify(`+${ITEMS[di.item]?.icon || '?'}`, '#c8a84b')
+        return false
+      }
+      return true
+    })
+
     // Camera follow
     const canvas = canvasRef.current
     if (canvas) {
@@ -670,8 +903,7 @@ export default function GamePage() {
     for (const v of st.villagers) {
       if (v.state === 'captured') continue
 
-      // Check flee
-      if (naz && naz.hp > 0) {
+      if (naz && naz.hp > 0 && naz.state !== 'dying') {
         const vdx = naz.x - v.x, vdy = naz.y - v.y
         const vdist = Math.sqrt(vdx * vdx + vdy * vdy)
         if (vdist < 6 * T) {
@@ -688,14 +920,13 @@ export default function GamePage() {
       }
 
       if (v.state === 'flee' && naz) {
-        // Flee away from nazgul
         const fdx = v.x - naz.x, fdy = v.y - naz.y
         const fdist = Math.sqrt(fdx * fdx + fdy * fdy)
         if (fdist > 0) {
-          const nx = v.x + (fdx / fdist) * 1.2
-          const ny = v.y + (fdy / fdist) * 1.2
-          if (!isSolid(nx, v.y) && nx > T && nx < (WW - 1) * T) v.x = nx
-          if (!isSolid(v.x, ny) && ny > T && ny < (WH - 1) * T) v.y = ny
+          const vnx = v.x + (fdx / fdist) * 1.2
+          const vny = v.y + (fdy / fdist) * 1.2
+          if (!isSolid(vnx, v.y) && vnx > T && vnx < (WW - 1) * T) v.x = vnx
+          if (!isSolid(v.x, vny) && vny > T && vny < (WH - 1) * T) v.y = vny
           v.frame++
           if (Math.abs(fdx) > Math.abs(fdy)) {
             v.dir = fdx > 0 ? 'right' : 'left'
@@ -704,7 +935,6 @@ export default function GamePage() {
           }
         }
       } else if (v.state === 'walk') {
-        // Patrol
         v.patrolTimer--
         if (v.patrolTimer <= 0) {
           v.patrolIdx = (v.patrolIdx + 1) % v.patrol.length
@@ -721,22 +951,22 @@ export default function GamePage() {
     if (g) {
       if (g.shieldActive > 0) g.shieldActive--
       if (g.attackCooldown > 0) g.attackCooldown--
+      if (g.rayFrames > 0) g.rayFrames--
 
-      // Check if player nearby and nazgul approaching
       const gpdx = p.x - g.x, gpdy = p.y - g.y
       const gpDist = Math.sqrt(gpdx * gpdx + gpdy * gpdy)
 
-      if (naz && naz.hp > 0 && g.attackCooldown === 0) {
+      if (naz && naz.hp > 0 && naz.state !== 'dying' && g.attackCooldown === 0) {
         const gndx = naz.x - g.x, gndy = naz.y - g.y
         const gnDist = Math.sqrt(gndx * gndx + gndy * gndy)
 
         if (gpDist < 4 * T && gnDist < 6 * T) {
-          // Activate shield!
           g.shieldActive = 120
           g.attackCooldown = 180
           g.state = 'alert'
+          g.rayTarget = { x: naz.x, y: naz.y }
+          g.rayFrames = 8
 
-          // Damage and knockback nazgul
           naz.hp -= 8
           st.fx.push({
             x: naz.x,
@@ -747,7 +977,6 @@ export default function GamePage() {
             life: 40,
           })
 
-          // Knockback
           const kbDist = Math.sqrt(gndx * gndx + gndy * gndy)
           if (kbDist > 0) {
             naz.x += (gndx / kbDist) * T * 3
@@ -761,15 +990,12 @@ export default function GamePage() {
           notify('✦ GANDALF TE PROTEGE ✦', '#e8e0a0')
 
           if (naz.hp <= 0) {
-            const saved = st.villagers.filter(v => v.state !== 'captured').length
-            log('e', `¡NAZGÛL DERROTADO! La Comarca está a salvo. Aldeanos salvados: ${saved}/8`)
-            st.gameActive = false
-            setScreen('win')
+            naz.state = 'dying'
+            naz.deathFrame = 0
           }
         }
       }
 
-      // Patrol when idle
       if (g.shieldActive === 0) {
         g.state = 'idle'
         g.patrolTimer--
@@ -783,11 +1009,92 @@ export default function GamePage() {
       }
     }
 
-    // Nazgul AI
-    if (naz && naz.hp > 0) {
+    // Nazgul AI (handle all)
+    const allNazgul = st.nazgul ? [st.nazgul] : []
+    for (const naz of allNazgul) {
+      if (!naz || naz.hp <= 0) continue
+      
+      // Death animation
+      if (naz.state === 'dying') {
+        naz.deathFrame++
+        
+        if (naz.deathFrame === 1) {
+          // Freeze and scale
+        }
+        if (naz.deathFrame === 20) {
+          // Explosion particles
+          for (let i = 0; i < 16; i++) {
+            st.parts.push({
+              x: naz.x,
+              y: naz.y,
+              vx: (Math.random() - 0.5) * 5,
+              vy: (Math.random() - 0.5) * 5,
+              color: Math.random() > 0.5 ? '#1a0a20' : '#3a3a3a',
+              life: 40,
+              maxLife: 40,
+            })
+          }
+          st.screenFlash = 3
+        }
+        if (naz.deathFrame === 60) {
+          // Leave ground mark
+          st.groundMarks.push({ x: naz.x, y: naz.y, alpha: 0.6 })
+        }
+        if (naz.deathFrame >= 120) {
+          // Drop items
+          const drops = ['lembas', 'miruvor', 'espada_rota']
+          const numDrops = 1 + Math.floor(Math.random() * 2)
+          for (let i = 0; i < numDrops; i++) {
+            st.droppedItems.push({
+              x: naz.x + (Math.random() - 0.5) * T * 2,
+              y: naz.y + (Math.random() - 0.5) * T * 2,
+              item: drops[Math.floor(Math.random() * drops.length)],
+              bouncePhase: Math.random() * Math.PI * 2,
+            })
+          }
+          
+          // Remove this nazgul
+          if (st.nazgul === naz) {
+            st.nazgul = null
+          }
+          st.nazgulList = st.nazgulList.filter(n => n !== naz)
+          
+          // Check victory or spawn next wave
+          if (!st.nazgul && st.nazgulList.length === 0) {
+            if (st.gameMode === 'horde' && st.wave < 10) {
+              st.waveDelay = 180
+              log('s', `Oleada ${st.wave} completada. Prepárate para la siguiente...`)
+            } else {
+              const saved = st.villagers.filter(v => v.state !== 'captured').length
+              log('e', `¡VICTORIA! Aldeanos salvados: ${saved}/8`)
+              setTimeout(() => {
+                st.gameActive = false
+                setScreen('win')
+              }, 1500)
+            }
+          }
+        }
+        continue
+      }
+      
       if (naz.atkT > 0) naz.atkT--
       if (naz.invT > 0) naz.invT--
       naz.frame++
+
+      // Confused state (ring active)
+      if (naz.state === 'confused') {
+        if (p.ringActive === 0) {
+          naz.state = 'hunt'
+        } else {
+          // Move erratically
+          const randAngle = Math.random() * Math.PI * 2
+          naz.x += Math.cos(randAngle) * naz.spd * 0.5
+          naz.y += Math.sin(randAngle) * naz.spd * 0.5
+          naz.x = Math.max(T, Math.min((WW - 1) * T, naz.x))
+          naz.y = Math.max(T, Math.min((WH - 1) * T, naz.y))
+          continue
+        }
+      }
 
       // Check if should flee gandalf
       if (g) {
@@ -808,7 +1115,7 @@ export default function GamePage() {
           naz.state = 'chase_player'
         }
       } else if (p.ringActive > 0 && naz.state === 'chase_player') {
-        naz.state = 'hunt'
+        naz.state = 'confused'
       }
 
       // Execute state
@@ -824,26 +1131,29 @@ export default function GamePage() {
       } else if (naz.state === 'chase_player') {
         moveToward(naz, p.x, p.y, naz.spd)
 
-        // Attack player
         const pndx = p.x - naz.x, pndy = p.y - naz.y
         const pnDist = Math.sqrt(pndx * pndx + pndy * pndy)
         if (pnDist < T * 1.0 && p.invT === 0 && naz.atkT === 0 && p.ringActive === 0) {
-          p.hp -= naz.dmg
+          if (!st.heroMode) {
+            p.hp -= naz.dmg
+          }
           p.invT = 60
           naz.atkT = 60
           st.fx.push({
             x: p.x,
             y: p.y - 20,
-            text: `-${naz.dmg}`,
-            color: '#e24b4a',
+            text: st.heroMode ? 'INMUNE' : `-${naz.dmg}`,
+            color: st.heroMode ? '#c8a84b' : '#e24b4a',
             vy: -1.1,
             life: 40,
           })
-          log('d', `¡El Nazgûl te ataca! -${naz.dmg} HP. (${Math.max(0, p.hp)}/${p.maxhp})`)
+          if (!st.heroMode) {
+            log('d', `¡El Nazgûl te ataca! -${naz.dmg} HP. (${Math.max(0, p.hp)}/${p.maxhp})`)
+          }
 
-          if (p.hp <= 0) {
-            st.gameActive = false
-            setScreen('dead')
+          if (p.hp <= 0 && !st.heroMode) {
+            // Start death animation
+            p.deathFrame = 1
           }
         }
       } else {
@@ -863,7 +1173,6 @@ export default function GamePage() {
         if (closest) {
           moveToward(naz, closest.x, closest.y, naz.spd)
 
-          // Attack villager
           if (closestDist < T * 1.0 && naz.atkT === 0) {
             closest.hp--
             naz.atkT = 80
@@ -879,10 +1188,10 @@ export default function GamePage() {
             if (closest.hp <= 0) {
               closest.state = 'captured'
               naz.poweredUp++
-              naz.spd = Math.min(1.6, naz.spd + 0.08)
+              // v4 scaling
+              naz.spd = Math.min(1.8, naz.spd + 0.25)
               naz.hp = Math.min(naz.maxhp + naz.poweredUp * 3, naz.hp + 3)
 
-              // Burst particles
               for (let i = 0; i < 6; i++) {
                 st.parts.push({
                   x: closest.x,
@@ -891,12 +1200,12 @@ export default function GamePage() {
                   vy: (Math.random() - 0.5) * 3,
                   color: '#5a1010',
                   life: 30,
+                  maxLife: 30,
                 })
               }
 
               log('d', `${closest.name} ha caído. El Nazgûl se vuelve más poderoso (${naz.poweredUp} almas).`)
 
-              // Check game over
               const remaining = st.villagers.filter(v => v.state !== 'captured').length
               if (remaining === 0) {
                 st.gameActive = false
@@ -905,9 +1214,34 @@ export default function GamePage() {
             }
           }
         } else {
-          // No villagers left, chase player slowly
           moveToward(naz, p.x, p.y, naz.spd * 0.8)
         }
+      }
+    }
+
+    // Player death animation
+    if (p.deathFrame > 0) {
+      p.deathFrame++
+      if (p.deathFrame <= 30) {
+        // Blink red, shrink
+      }
+      if (p.deathFrame === 30) {
+        // Explosion particles
+        for (let i = 0; i < 12; i++) {
+          st.parts.push({
+            x: p.x,
+            y: p.y,
+            vx: (Math.random() - 0.5) * 4,
+            vy: (Math.random() - 0.5) * 4,
+            color: Math.random() > 0.5 ? '#c82020' : '#c8a84b',
+            life: 40,
+            maxLife: 40,
+          })
+        }
+      }
+      if (p.deathFrame >= 150) {
+        st.gameActive = false
+        setScreen('dead')
       }
     }
 
@@ -926,11 +1260,17 @@ export default function GamePage() {
       return pt.life > 0
     })
 
+    // Ground marks fade
+    st.groundMarks = st.groundMarks.filter(gm => {
+      gm.alpha -= 0.001
+      return gm.alpha > 0
+    })
+
     // Fade
     if (st.fade && st.fade.life > 0) {
       st.fade.life--
     }
-  }, [isSolid, moveToward, spawnNazgul, log, notify])
+  }, [isSolid, moveToward, createNazgul, log, notify])
 
   // ============ DRAWING ============
   const drawSprite = useCallback((
@@ -947,7 +1287,6 @@ export default function GamePage() {
     ctx.save()
     ctx.translate(px, py)
 
-    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.25)'
     ctx.beginPath()
     ctx.ellipse(0, 8 * sc, 6 * sc, 3 * sc, 0, 0, Math.PI * 2)
@@ -957,100 +1296,76 @@ export default function GamePage() {
     ctx.scale(flip, 1)
 
     if (char === 'frodo') {
-      // Body/cloak
       ctx.fillStyle = '#4a6020'
       ctx.fillRect(-5 * sc, -8 * sc, 10 * sc, 10 * sc)
-      // Legs
       ctx.fillStyle = '#3a4818'
       ctx.fillRect(-3 * sc, 2 * sc, 3 * sc, 6 * sc + legAnim * sc)
       ctx.fillRect(0, 2 * sc, 3 * sc, 6 * sc - legAnim * sc)
-      // Shoes
       ctx.fillStyle = '#6a4020'
       ctx.fillRect(-3 * sc, 7 * sc + legAnim * sc, 3 * sc, 2 * sc)
       ctx.fillRect(0, 7 * sc - legAnim * sc, 3 * sc, 2 * sc)
-      // Head
       ctx.fillStyle = '#d4a070'
       ctx.fillRect(-4 * sc, -14 * sc, 8 * sc, 7 * sc)
-      // Hair
       ctx.fillStyle = '#5a3010'
       ctx.fillRect(-4 * sc, -15 * sc, 8 * sc, 3 * sc)
       ctx.fillRect(-5 * sc, -13 * sc, 2 * sc, 3 * sc)
       ctx.fillRect(3 * sc, -13 * sc, 2 * sc, 3 * sc)
-      // Eyes
       ctx.fillStyle = '#2a1810'
       if (dir === 'down' || dir === 'left' || dir === 'right') {
         ctx.fillRect(-2 * sc, -11 * sc, 1.5 * sc, 1.5 * sc)
         ctx.fillRect(1 * sc, -11 * sc, 1.5 * sc, 1.5 * sc)
       }
     } else if (char === 'aragorn') {
-      // Armor body
       ctx.fillStyle = '#4a3a20'
       ctx.fillRect(-6 * sc, -8 * sc, 12 * sc, 12 * sc)
-      // Chest plate
       ctx.fillStyle = '#6a5a30'
       ctx.fillRect(-4 * sc, -6 * sc, 8 * sc, 6 * sc)
-      // Belt
       ctx.fillStyle = '#2a1a08'
       ctx.fillRect(-5 * sc, 2 * sc, 10 * sc, 2 * sc)
-      // Chain mail hint
       ctx.fillStyle = '#5a5a5a'
       ctx.fillRect(-5 * sc, -2 * sc, 2 * sc, 4 * sc)
       ctx.fillRect(3 * sc, -2 * sc, 2 * sc, 4 * sc)
-      // Legs
       ctx.fillStyle = '#3a2a18'
       ctx.fillRect(-3 * sc, 4 * sc, 3 * sc, 5 * sc + legAnim * sc)
       ctx.fillRect(0, 4 * sc, 3 * sc, 5 * sc - legAnim * sc)
-      // Sword on right side
       ctx.fillStyle = '#9a9aa0'
       ctx.fillRect(6 * sc, -10 * sc, 2 * sc, 14 * sc)
       ctx.fillStyle = '#c8a84b'
       ctx.fillRect(5 * sc, 3 * sc, 4 * sc, 3 * sc)
-      // Head
       ctx.fillStyle = '#d4a070'
       ctx.fillRect(-4 * sc, -16 * sc, 8 * sc, 8 * sc)
-      // Beard
       ctx.fillStyle = '#4a2810'
       ctx.fillRect(-3 * sc, -10 * sc, 6 * sc, 3 * sc)
-      // Hair
       ctx.fillStyle = '#3a2010'
       ctx.fillRect(-4 * sc, -17 * sc, 8 * sc, 3 * sc)
-      // Crown dots
       ctx.fillStyle = '#c8a84b'
       for (let i = 0; i < 3; i++) {
         ctx.fillRect((-2 + i * 2) * sc, -18 * sc, 1 * sc, 1 * sc)
       }
-      // Eyes
       ctx.fillStyle = '#2a1810'
       if (dir === 'down' || dir === 'left' || dir === 'right') {
         ctx.fillRect(-2 * sc, -13 * sc, 1.5 * sc, 1.5 * sc)
         ctx.fillRect(1 * sc, -13 * sc, 1.5 * sc, 1.5 * sc)
       }
     } else if (char === 'gandalf' || char === 'gandalf_npc') {
-      // Robe
       ctx.fillStyle = '#888888'
       ctx.fillRect(-6 * sc, -10 * sc, 12 * sc, 16 * sc)
-      // Shadow fold
       ctx.fillStyle = '#6a6a6a'
       ctx.fillRect(-4 * sc, 0, 2 * sc, 6 * sc)
       ctx.fillRect(2 * sc, 0, 2 * sc, 6 * sc)
-      // Belt
       ctx.fillStyle = '#4a4040'
       ctx.fillRect(-5 * sc, -2 * sc, 10 * sc, 2 * sc)
-      // Staff
       ctx.fillStyle = '#6a4a20'
       ctx.fillRect(7 * sc, -18 * sc, 2 * sc, 24 * sc)
       ctx.fillStyle = '#c8a84b'
       ctx.beginPath()
       ctx.arc(8 * sc, -19 * sc, 2.5 * sc, 0, Math.PI * 2)
       ctx.fill()
-      // Head
       ctx.fillStyle = '#d4a080'
       ctx.fillRect(-4 * sc, -18 * sc, 8 * sc, 8 * sc)
-      // Beard
       ctx.fillStyle = '#e8e8e0'
       ctx.fillRect(-3 * sc, -12 * sc, 6 * sc, 6 * sc)
       ctx.fillRect(-2 * sc, -6 * sc, 4 * sc, 4 * sc)
-      // Hat
       ctx.fillStyle = '#606060'
       ctx.beginPath()
       ctx.moveTo(-6 * sc, -18 * sc)
@@ -1059,7 +1374,6 @@ export default function GamePage() {
       ctx.fill()
       ctx.fillStyle = '#808080'
       ctx.fillRect(-8 * sc, -18 * sc, 16 * sc, 2 * sc)
-      // Eyes
       ctx.fillStyle = '#2a2a40'
       if (dir === 'down' || dir === 'left' || dir === 'right') {
         ctx.fillRect(-2 * sc, -16 * sc, 1.5 * sc, 1.5 * sc)
@@ -1067,10 +1381,8 @@ export default function GamePage() {
       }
     } else if (char === 'nazgul') {
       const pulse = 0.7 + 0.3 * Math.sin(frame * 0.15)
-      // Cloak
       ctx.fillStyle = `rgba(10,5,20,${pulse})`
       ctx.fillRect(-7 * sc, -12 * sc, 14 * sc, 20 * sc)
-      // Hood
       ctx.fillStyle = `rgba(35,0,0,${pulse})`
       ctx.fillRect(-5 * sc, -18 * sc, 10 * sc, 8 * sc)
       ctx.beginPath()
@@ -1078,32 +1390,25 @@ export default function GamePage() {
       ctx.lineTo(0, -22 * sc)
       ctx.lineTo(5 * sc, -18 * sc)
       ctx.fill()
-      // Eyes
       ctx.fillStyle = '#ff6020'
       ctx.beginPath()
       ctx.arc(-2 * sc, -14 * sc, 1.5 * sc, 0, Math.PI * 2)
       ctx.arc(2 * sc, -14 * sc, 1.5 * sc, 0, Math.PI * 2)
       ctx.fill()
-      // Sword
       ctx.fillStyle = 'rgba(100,100,120,0.8)'
       ctx.fillRect(8 * sc, -16 * sc, 2 * sc, 18 * sc)
-      // Wisps
       ctx.fillStyle = 'rgba(20,0,40,0.4)'
       ctx.fillRect(-10 * sc, -5 * sc, 4 * sc, 8 * sc)
       ctx.fillRect(6 * sc, -5 * sc, 4 * sc, 8 * sc)
     } else if (char === 'villager') {
-      // Generic villager with custom color
       const color = extraColor || '#8a6030'
       ctx.fillStyle = color
       ctx.fillRect(-4 * sc, -6 * sc, 8 * sc, 8 * sc)
-      // Legs
       ctx.fillStyle = '#5a4020'
       ctx.fillRect(-2 * sc, 2 * sc, 2 * sc, 5 * sc + legAnim * sc * 0.5)
       ctx.fillRect(0, 2 * sc, 2 * sc, 5 * sc - legAnim * sc * 0.5)
-      // Head
       ctx.fillStyle = '#d4a070'
       ctx.fillRect(-3 * sc, -12 * sc, 6 * sc, 6 * sc)
-      // Eyes
       ctx.fillStyle = '#2a1810'
       if (dir === 'down' || dir === 'left' || dir === 'right') {
         ctx.fillRect(-1.5 * sc, -9 * sc, 1 * sc, 1 * sc)
@@ -1169,7 +1474,6 @@ export default function GamePage() {
       case 'door':
         ctx.fillStyle = '#3a4818'
         ctx.fillRect(x, y, T, T)
-        // Hobbit hole door
         ctx.fillStyle = '#2a3a10'
         ctx.beginPath()
         ctx.arc(x + 16, y + 20, 14, Math.PI, 0, true)
@@ -1190,7 +1494,6 @@ export default function GamePage() {
         ctx.fillRect(x, y, T, T)
         ctx.fillStyle = '#5a4030'
         ctx.fillRect(x + 8, y, 16, T)
-        // Mill blades hint
         ctx.strokeStyle = '#8a7050'
         ctx.lineWidth = 2
         ctx.beginPath()
@@ -1213,7 +1516,6 @@ export default function GamePage() {
     const st = S.current
     const scale = 100 / WW
 
-    // Draw tiles
     for (let ty = 0; ty < WH; ty++) {
       for (let tx = 0; tx < WW; tx++) {
         const tile = st.map[ty][tx]
@@ -1231,28 +1533,24 @@ export default function GamePage() {
       }
     }
 
-    // Villagers
     for (const v of st.villagers) {
       const mx = (v.x / T) * scale, my = (v.y / T) * scale * (70 / WH)
       mctx.fillStyle = v.state === 'captured' ? '#5a1010' : v.state === 'flee' ? '#e08040' : '#8aaa6e'
       mctx.fillRect(mx - 1, my - 1, 2, 2)
     }
 
-    // Gandalf
     if (st.gandalfAlly) {
       const mx = (st.gandalfAlly.x / T) * scale, my = (st.gandalfAlly.y / T) * scale * (70 / WH)
       mctx.fillStyle = '#e8e0a0'
       mctx.fillRect(mx - 1.5, my - 1.5, 3, 3)
     }
 
-    // Nazgul
     if (st.nazgul && st.nazgul.hp > 0) {
       const mx = (st.nazgul.x / T) * scale, my = (st.nazgul.y / T) * scale * (70 / WH)
       mctx.fillStyle = Math.floor(Date.now() / 180) % 2 === 0 ? '#ff4020' : '#8a2010'
       mctx.fillRect(mx - 2.5, my - 2.5, 5, 5)
     }
 
-    // Player
     if (st.p) {
       const mx = (st.p.x / T) * scale, my = (st.p.y / T) * scale * (70 / WH)
       mctx.fillStyle = '#c8a84b'
@@ -1271,32 +1569,60 @@ export default function GamePage() {
     const canvas = canvasRef.current!
     const sx = st.cam.x, sy = st.cam.y
 
-    // Clear
+    // Screen flash
+    if (st.screenFlash > 0) {
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      return
+    }
+
+    // Death fade
+    if (p.deathFrame > 80) {
+      const fadeAlpha = Math.min(1, (p.deathFrame - 80) / 70)
+      ctx.fillStyle = `rgba(0,0,0,${fadeAlpha})`
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      if (p.deathFrame < 150) return
+    }
+
     ctx.fillStyle = '#0a0804'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // Calculate visible tiles
     const startTX = Math.max(0, Math.floor(sx / T) - 1)
     const endTX = Math.min(WW, Math.ceil((sx + canvas.width) / T) + 1)
     const startTY = Math.max(0, Math.floor(sy / T) - 1)
     const endTY = Math.min(WH, Math.ceil((sy + canvas.height) / T) + 1)
 
-    // Draw tiles
     for (let ty = startTY; ty < endTY; ty++) {
       for (let tx = startTX; tx < endTX; tx++) {
         drawTile(ctx, tx, ty, st.map[ty][tx], sx, sy)
       }
     }
 
-    // Draw particles
+    // Ground marks
+    for (const gm of st.groundMarks) {
+      ctx.fillStyle = `rgba(20,5,30,${gm.alpha})`
+      ctx.beginPath()
+      ctx.arc(gm.x - sx, gm.y - sy, 20, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    // Dropped items
+    for (const di of st.droppedItems) {
+      const bounce = Math.sin(di.bouncePhase) * 3
+      ctx.font = '16px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(ITEMS[di.item]?.icon || '?', di.x - sx, di.y - sy - 8 + bounce)
+    }
+
+    // Particles
     for (const pt of st.parts) {
       ctx.fillStyle = pt.color
-      ctx.globalAlpha = pt.life / 30
+      ctx.globalAlpha = pt.life / pt.maxLife
       ctx.fillRect(pt.x - sx - 2, pt.y - sy - 2, 4, 4)
     }
     ctx.globalAlpha = 1
 
-    // Draw captured marks
+    // Captured marks
     for (const v of st.villagers) {
       if (v.state === 'captured') {
         ctx.strokeStyle = '#8a2020'
@@ -1308,7 +1634,6 @@ export default function GamePage() {
         ctx.moveTo(vx + 8, vy - 8)
         ctx.lineTo(vx - 8, vy + 8)
         ctx.stroke()
-        // Name
         ctx.font = '7px monospace'
         ctx.fillStyle = '#5a1010'
         ctx.textAlign = 'center'
@@ -1316,20 +1641,18 @@ export default function GamePage() {
       }
     }
 
-    // Draw villagers
+    // Villagers
     for (const v of st.villagers) {
       if (v.state === 'captured') continue
       const vx = v.x - sx, vy = v.y - sy
       drawSprite(ctx, 'villager', v.dir, v.frame, vx, vy, 1.8, v.color)
 
-      // Hat
       if (v.hat) {
         ctx.fillStyle = '#2a1808'
         ctx.fillRect(vx - 5, vy - 26, 10, 4)
         ctx.fillRect(vx - 3, vy - 30, 6, 4)
       }
 
-      // Flee indicator
       if (v.state === 'flee') {
         ctx.font = 'bold 12px sans-serif'
         ctx.fillStyle = '#e24b4a'
@@ -1337,7 +1660,6 @@ export default function GamePage() {
         ctx.fillText('!', vx, vy - 35)
       }
 
-      // Name label
       ctx.font = '7px monospace'
       ctx.fillStyle = 'rgba(0,0,0,0.55)'
       const nameWidth = ctx.measureText(v.name).width + 6
@@ -1347,7 +1669,7 @@ export default function GamePage() {
       ctx.fillText(v.name, vx, vy + 20)
     }
 
-    // Draw Gandalf ally
+    // Gandalf ally
     const g = st.gandalfAlly
     if (g) {
       const gx = g.x - sx, gy = g.y - sy
@@ -1360,16 +1682,31 @@ export default function GamePage() {
         ctx.beginPath()
         ctx.arc(gx, gy, 40, 0, Math.PI * 2)
         ctx.stroke()
-        ctx.strokeStyle = `rgba(255,255,200,${pulse * 0.4})`
-        ctx.lineWidth = 2
+        
+        // Area circle
+        ctx.fillStyle = `rgba(232,224,160,${pulse * 0.15})`
         ctx.beginPath()
-        ctx.arc(gx, gy, 50, 0, Math.PI * 2)
+        ctx.arc(gx, gy, 60, 0, Math.PI * 2)
+        ctx.fill()
+      }
+
+      // Ray to Nazgul
+      if (g.rayFrames > 0 && g.rayTarget) {
+        const gradient = ctx.createLinearGradient(gx + 16, gy - 38, g.rayTarget.x - sx, g.rayTarget.y - sy)
+        gradient.addColorStop(0, '#ffffd0')
+        gradient.addColorStop(1, '#c8a84b')
+        ctx.strokeStyle = gradient
+        ctx.lineWidth = 4
+        ctx.globalAlpha = g.rayFrames / 8
+        ctx.beginPath()
+        ctx.moveTo(gx + 16, gy - 38)
+        ctx.lineTo(g.rayTarget.x - sx, g.rayTarget.y - sy)
         ctx.stroke()
+        ctx.globalAlpha = 1
       }
 
       drawSprite(ctx, 'gandalf_npc', g.dir, g.frame, gx, gy, 2)
 
-      // Name label
       ctx.font = 'bold 7px monospace'
       ctx.fillStyle = 'rgba(0,0,0,0.55)'
       ctx.fillRect(gx - 25, gy + 12, 50, 10)
@@ -1377,7 +1714,6 @@ export default function GamePage() {
       ctx.textAlign = 'center'
       ctx.fillText('GANDALF', gx, gy + 20)
 
-      // Interact hint
       if (!g.talked && p) {
         const gdx = g.x - p.x, gdy = g.y - p.y
         const gDist = Math.sqrt(gdx * gdx + gdy * gdy)
@@ -1389,40 +1725,84 @@ export default function GamePage() {
       }
     }
 
-    // Draw Nazgul
+    // Nazgul
     const naz = st.nazgul
-    if (naz && naz.hp > 0) {
+    if (naz && (naz.hp > 0 || naz.state === 'dying')) {
       const nx = naz.x - sx, ny = naz.y - sy
 
-      // Flash when hit
-      if (naz.invT > 0 && naz.invT % 4 < 2) {
-        ctx.globalAlpha = 0.5
-      }
+      // Death animation
+      if (naz.state === 'dying') {
+        const deathProgress = naz.deathFrame / 120
+        const scale = naz.deathFrame < 20 ? 1 + (naz.deathFrame / 20) * 0.3 : 1.3 - deathProgress * 0.3
+        ctx.globalAlpha = 1 - deathProgress
+        ctx.save()
+        ctx.translate(nx, ny)
+        ctx.scale(scale, scale)
+        ctx.translate(-nx, -ny)
+        drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        ctx.restore()
+        ctx.globalAlpha = 1
+      } else {
+        if (naz.invT > 0 && naz.invT % 4 < 2) {
+          ctx.globalAlpha = 0.5
+        }
 
-      drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
-      ctx.globalAlpha = 1
+        drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        ctx.globalAlpha = 1
 
-      // HP bar
-      ctx.fillStyle = '#2a0a0a'
-      ctx.fillRect(nx - 20, ny - 45, 40, 6)
-      ctx.fillStyle = '#c82020'
-      ctx.fillRect(nx - 19, ny - 44, 38 * (naz.hp / naz.maxhp), 4)
-
-      // Name
-      ctx.font = 'bold 8px monospace'
-      ctx.fillStyle = '#ff6040'
-      ctx.textAlign = 'center'
-      ctx.fillText('NAZGÛL', nx, ny + 25)
-
-      // Souls count
-      if (naz.poweredUp > 0) {
+        ctx.fillStyle = '#2a0a0a'
+        ctx.fillRect(nx - 20, ny - 45, 40, 6)
         ctx.fillStyle = '#c82020'
-        ctx.fillText(`ALMAS: ${naz.poweredUp}`, nx, ny + 35)
+        ctx.fillRect(nx - 19, ny - 44, 38 * (naz.hp / naz.maxhp), 4)
+
+        ctx.font = 'bold 8px monospace'
+        ctx.fillStyle = '#ff6040'
+        ctx.textAlign = 'center'
+        ctx.fillText('NAZGÛL', nx, ny + 25)
+
+        if (naz.poweredUp > 0) {
+          ctx.fillStyle = '#c82020'
+          ctx.fillText(`ALMAS: ${naz.poweredUp}`, nx, ny + 35)
+        }
       }
     }
 
-    // Draw player
+    // Player
     const px = p.x - sx, py = p.y - sy
+
+    // Aragorn sweep arc
+    if (p.char === 'aragorn' && p.sweepAnim > 0) {
+      const progress = p.sweepAnim / 20
+      ctx.strokeStyle = `rgba(200,168,75,${progress * 0.6})`
+      ctx.lineWidth = 4
+      ctx.beginPath()
+      ctx.arc(px, py, T * 2.4, p.sweepAngle - Math.PI / 3, p.sweepAngle + Math.PI / 3)
+      ctx.stroke()
+    }
+
+    // Ring shimmer for Frodo
+    if (p.char === 'frodo' && p.ringShimmer > 0) {
+      const shimmerAlpha = (p.ringShimmer / 300) * (0.3 + 0.2 * Math.sin(st.frameCount * 0.3))
+      ctx.strokeStyle = `rgba(200,168,75,${shimmerAlpha})`
+      ctx.lineWidth = 2
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath()
+        ctx.arc(px, py, 15 + i * 5 + Math.sin(st.frameCount * 0.1 + i) * 2, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+      // Golden particles
+      if (st.frameCount % 5 === 0) {
+        st.parts.push({
+          x: p.x + (Math.random() - 0.5) * 30,
+          y: p.y + (Math.random() - 0.5) * 30,
+          vx: (Math.random() - 0.5) * 0.5,
+          vy: -0.5 - Math.random() * 0.5,
+          color: '#c8a84b',
+          life: 20,
+          maxLife: 20,
+        })
+      }
+    }
 
     // Invisibility effect
     if (p.ringActive > 0) {
@@ -1436,25 +1816,40 @@ export default function GamePage() {
       ctx.setLineDash([])
     }
 
-    // Flash when hit
-    if (p.invT > 0 && p.invT % 6 < 3) {
-      ctx.globalAlpha = 0.5
+    // Death animation shrink
+    if (p.deathFrame > 0 && p.deathFrame <= 30) {
+      const shrink = 1 - (p.deathFrame / 30) * 0.7
+      ctx.save()
+      ctx.translate(px, py)
+      ctx.scale(1, shrink)
+      ctx.translate(-px, -py)
+      if (p.deathFrame % 4 < 2) {
+        ctx.globalAlpha = 0.5
+      }
+      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2)
+      ctx.restore()
+    } else if (p.deathFrame === 0) {
+      // Flash when hit
+      if (p.invT > 0 && p.invT % 6 < 3) {
+        ctx.globalAlpha = 0.5
+      }
+      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2)
     }
-
-    drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2)
     ctx.globalAlpha = 1
 
     // Player name
-    ctx.font = 'bold 9px monospace'
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'
-    const pName = CHARS[p.char].name
-    const pNameWidth = ctx.measureText(pName).width + 8
-    ctx.fillRect(px - pNameWidth / 2, py + 12, pNameWidth, 12)
-    ctx.fillStyle = '#c8a84b'
-    ctx.textAlign = 'center'
-    ctx.fillText(pName, px, py + 22)
+    if (p.deathFrame === 0) {
+      ctx.font = 'bold 9px monospace'
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'
+      const pName = CHARS[p.char].name
+      const pNameWidth = ctx.measureText(pName).width + 8
+      ctx.fillRect(px - pNameWidth / 2, py + 12, pNameWidth, 12)
+      ctx.fillStyle = '#c8a84b'
+      ctx.textAlign = 'center'
+      ctx.fillText(pName, px, py + 22)
+    }
 
-    // Draw floating text FX
+    // Floating text FX
     for (const f of st.fx) {
       ctx.font = 'bold 12px monospace'
       ctx.fillStyle = f.color
@@ -1464,7 +1859,7 @@ export default function GamePage() {
     }
     ctx.globalAlpha = 1
 
-    // Draw fade notification
+    // Fade notification
     if (st.fade && st.fade.life > 0) {
       ctx.font = 'bold 14px monospace'
       ctx.fillStyle = st.fade.color
@@ -1474,7 +1869,6 @@ export default function GamePage() {
       ctx.globalAlpha = 1
     }
 
-    // Draw minimap
     drawMinimap()
   }, [drawTile, drawSprite, drawMinimap])
 
@@ -1491,6 +1885,10 @@ export default function GamePage() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!S.current) return
+      
+      // Don't capture if typing in input
+      if (document.activeElement?.tagName === 'INPUT') return
+      
       S.current.keys.add(e.key)
 
       if (e.key === ' ' || e.key === 'Space') {
@@ -1513,9 +1911,12 @@ export default function GamePage() {
 
       if (e.key === 'Escape') {
         closeDlg()
+        if (S.current) {
+          S.current.modMenuOpen = false
+          forceUpdate(n => n + 1)
+        }
       }
 
-      // Number keys for inventory
       if (e.key >= '1' && e.key <= '5') {
         useItem(parseInt(e.key) - 1)
       }
@@ -1612,8 +2013,33 @@ export default function GamePage() {
     S.current.joy = { active: false, dx: 0, dy: 0 }
   }
 
+  // ============ TERMINAL INPUT HANDLING ============
+  const handleTermInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!S.current) return
+    const val = e.target.value
+    S.current.termInput = val
+    S.current.modMenuOpen = val.startsWith('/')
+    forceUpdate(n => n + 1)
+  }
+
+  const handleTermKeyDown = (e: React.KeyboardEvent) => {
+    if (!S.current) return
+    if (e.key === 'Enter' && S.current.termInput.trim()) {
+      executeCommand(S.current.termInput.trim())
+    }
+    if (e.key === 'Escape') {
+      S.current.modMenuOpen = false
+      S.current.termInput = ''
+      forceUpdate(n => n + 1)
+    }
+  }
+
   // ============ RENDER ============
   const savedCount = S.current ? S.current.villagers.filter(v => v.state !== 'captured').length : 8
+  const termContext = S.current ? getTermContext() : 'exploration'
+  const filteredMods = S.current?.termInput 
+    ? MOD_COMMANDS.filter(m => m.cmd.startsWith(S.current!.termInput))
+    : MOD_COMMANDS
 
   return (
     <div
@@ -1644,25 +2070,28 @@ export default function GamePage() {
             {Array.from({ length: S.current.p.maxhp }).map((_, i) => (
               <div
                 key={i}
-                className={`w-2 h-2 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'
-                  }`}
+                className={`w-2 h-2 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
               />
             ))}
           </div>
           <div className="text-[#5a8a3a] text-[8px] mt-1">
-            Aldeanos: {savedCount}/8
+            {S.current.gameMode === 'horde' && S.current.wave > 0 
+              ? `OLEADA ${S.current.wave}/10 | Aldeanos: ${savedCount}/8`
+              : `Aldeanos: ${savedCount}/8`
+            }
           </div>
+          {S.current.heroMode && (
+            <div className="text-[#c8a84b] text-[8px] animate-pulse">INMORTAL</div>
+          )}
           {S.current.p.ringActive > 0 && (
-            <div className="text-[#c8a84b] text-[8px] animate-pulse">
-              💍 INVISIBLE
-            </div>
+            <div className="text-[#c8a84b] text-[8px] animate-pulse">INVISIBLE</div>
           )}
         </div>
       )}
 
       {/* Inventory */}
       {screen === 'game' && S.current?.p && (
-        <div className="absolute top-16 right-2.5 flex flex-col gap-1">
+        <div className="absolute top-20 right-2.5 flex flex-col gap-1">
           {S.current.p.inv.map((item, i) => (
             <button
               key={i}
@@ -1680,7 +2109,7 @@ export default function GamePage() {
       {screen === 'game' && (
         <div
           ref={joystickRef}
-          className="absolute bottom-8 left-4 w-[90px] h-[90px] rounded-full bg-[rgba(200,168,75,0.07)] border-2 border-[rgba(200,168,75,0.18)] flex items-center justify-center"
+          className="absolute bottom-2 left-2 w-[80px] h-[80px] rounded-full bg-[rgba(200,168,75,0.07)] border-2 border-[rgba(200,168,75,0.18)] flex items-center justify-center z-30"
           onTouchStart={handleJoystickStart}
           onTouchMove={handleJoystickMove}
           onTouchEnd={handleJoystickEnd}
@@ -1690,7 +2119,7 @@ export default function GamePage() {
           onMouseLeave={handleJoystickEnd}
         >
           <div
-            className="w-9 h-9 rounded-full bg-[rgba(200,168,75,0.22)] border border-[rgba(200,168,75,0.4)]"
+            className="w-8 h-8 rounded-full bg-[rgba(200,168,75,0.22)] border border-[rgba(200,168,75,0.4)]"
             style={{
               transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`,
             }}
@@ -1698,50 +2127,44 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* Attack Button */}
-      {screen === 'game' && (
-        <button
-          onClick={doAttack}
-          className="absolute bottom-8 right-[85px] w-[52px] h-[52px] rounded-full bg-[rgba(180,40,40,0.22)] border-2 border-[rgba(220,80,80,0.4)] flex items-center justify-center text-lg active:bg-[rgba(180,40,40,0.4)] transition-colors"
+      {/* Floating Terminal Widget */}
+      {screen === 'game' && S.current && (
+        <div 
+          className="absolute bottom-2 right-2 z-20 rounded-[10px] border border-[#2a3a1a] overflow-hidden"
+          style={{ 
+            left: '90px',
+            background: 'rgba(10,12,8,0.93)',
+          }}
         >
-          ⚔
-        </button>
-      )}
-
-      {/* Interact Button */}
-      {screen === 'game' && (
-        <button
-          onClick={tryInteract}
-          className="absolute bottom-8 right-6 w-[52px] h-[52px] rounded-full bg-[rgba(100,160,100,0.22)] border-2 border-[rgba(140,200,140,0.4)] flex items-center justify-center text-lg font-bold text-[#8aaa6e] active:bg-[rgba(100,160,100,0.4)] transition-colors"
-        >
-          E
-        </button>
-      )}
-
-      {/* Terminal */}
-      {screen === 'game' && (
-        <div className="absolute bottom-0 left-0 right-0 bg-[rgba(10,8,4,0.95)] border-t border-[rgba(200,168,75,0.2)]">
-          <button
+          {/* Header */}
+          <div 
+            className="flex items-center justify-between px-2 h-5 border-b border-[#2a3a1a] cursor-pointer"
             onClick={() => {
-              if (S.current) S.current.termOpen = !S.current.termOpen
+              if (S.current) {
+                S.current.termOpen = !S.current.termOpen
+                forceUpdate(n => n + 1)
+              }
             }}
-            className="w-full px-3 py-1 flex items-center gap-2 text-[10px] text-[#5a6a3a]"
           >
-            <span className="w-2 h-2 rounded-full bg-[#5a8a3a]" />
-            TERMINAL
-            <span className="ml-auto">{S.current?.termOpen ? '▼' : '▲'}</span>
-          </button>
-          {S.current?.termOpen && (
-            <div className="h-[100px] overflow-y-auto px-3 pb-2 font-mono text-[10px]">
-              {S.current.logs.map((l, i) => (
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#5a8a3a] animate-pulse" />
+              <span className="text-[8px] text-[#5a6a3a] tracking-wider font-bold">TERMINAL</span>
+            </div>
+            <span className="text-[10px] text-[#5a6a3a]">{S.current.termOpen ? '▾' : '▴'}</span>
+          </div>
+
+          {/* Log (collapsible) */}
+          {S.current.termOpen && (
+            <div className="h-11 overflow-hidden px-2 py-1 font-mono text-[7px] leading-tight">
+              {S.current.logs.slice(-4).map((l, i) => (
                 <div
                   key={i}
                   className={
-                    l.type === 'i' ? 'text-[#5a6a3a]' :
-                      l.type === 'e' ? 'text-[#c8a84b]' :
-                        l.type === 'd' ? 'text-[#e24b4a]' :
-                          l.type === 'n' ? 'text-[#8aaa6e]' :
-                            'text-[#6a5a3a]'
+                    l.type === 'i' ? 'text-[#8aaa6e]' :
+                    l.type === 'e' ? 'text-[#c8a84b]' :
+                    l.type === 'd' ? 'text-[#e24b4a]' :
+                    l.type === 's' ? 'text-[#5a6a3a]' :
+                    'text-[#8aaa6e]'
                   }
                 >
                   [{l.time}] {l.msg}
@@ -1749,39 +2172,124 @@ export default function GamePage() {
               ))}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Dialog Box */}
-      {screen === 'game' && S.current?.dlg.active && (
-        <div className="absolute bottom-0 left-0 right-0 bg-[rgba(20,18,14,0.97)] border-t-2 border-[#c8a84b] p-4">
-          <div className="text-[#c8a84b] text-xs font-bold tracking-wider mb-2">
-            {S.current.dlg.speaker}
+          {/* Input */}
+          <div className="flex items-center h-5 px-2 border-t border-[#2a3a1a] relative">
+            <span className="text-[#5a6a3a] text-[9px] mr-1">›</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={S.current.termInput}
+              onChange={handleTermInput}
+              onKeyDown={handleTermKeyDown}
+              placeholder="escribe / para mods..."
+              className="flex-1 bg-transparent text-[#8aaa6e] text-[9px] outline-none placeholder:text-[#3a4a2a]"
+            />
           </div>
-          <div className="text-[#e8e0d0] text-sm mb-3">
-            {S.current.dlg.lines[S.current.dlg.lineIdx]}
-          </div>
-          {S.current.dlg.lineIdx === S.current.dlg.lines.length - 1 && (
-            <div className="flex flex-wrap gap-2">
-              {S.current.dlg.opts.map((opt, i) => (
+
+          {/* Mod Menu (floating above) */}
+          {S.current.modMenuOpen && (
+            <div 
+              className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-[#3a4a2a] p-1.5 max-h-32 overflow-y-auto"
+              style={{ background: 'rgba(10,12,8,0.97)' }}
+            >
+              {filteredMods.map((m, i) => (
                 <button
                   key={i}
-                  onClick={() => selectDlgOpt(opt)}
-                  className="px-3 py-1 bg-[rgba(200,168,75,0.15)] border border-[rgba(200,168,75,0.4)] rounded text-[#c8a84b] text-xs hover:bg-[rgba(200,168,75,0.25)] transition-colors"
+                  onClick={() => executeCommand(m.cmd)}
+                  className="w-full text-left px-2 py-1 text-[8px] hover:bg-[rgba(90,138,58,0.2)] rounded flex justify-between items-center"
                 >
-                  {opt.l}
+                  <span className="text-[#8aaa6e] font-mono">{m.cmd}</span>
+                  <span className="text-[#5a6a3a]">{m.desc}</span>
                 </button>
               ))}
             </div>
           )}
-          {S.current.dlg.lineIdx < S.current.dlg.lines.length - 1 && (
-            <button
-              onClick={advanceDlg}
-              className="text-[#8a8a6a] text-xs animate-pulse"
-            >
-              [ESPACIO] Continuar...
-            </button>
-          )}
+
+          {/* Contextual Button Bar */}
+          <div className="flex gap-1 p-1 border-t border-[#2a3a1a]">
+            {S.current.dlg.active ? (
+              // Dialog options
+              S.current.dlg.lineIdx === S.current.dlg.lines.length - 1 ? (
+                S.current.dlg.opts.slice(0, 3).map((opt, i) => (
+                  <button
+                    key={i}
+                    onClick={() => selectDlgOpt(opt)}
+                    className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[rgba(200,168,75,0.3)] hover:bg-[rgba(200,168,75,0.25)] transition-colors"
+                  >
+                    {opt.l}
+                  </button>
+                ))
+              ) : (
+                <button
+                  onClick={advanceDlg}
+                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[rgba(200,168,75,0.3)] hover:bg-[rgba(200,168,75,0.25)] transition-colors"
+                >
+                  Continuar...
+                </button>
+              )
+            ) : termContext === 'combat' ? (
+              // Combat buttons
+              <>
+                <button
+                  onClick={doAttack}
+                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#6a1a1a] text-[#e24b4a] border border-[#8a2a2a] hover:bg-[#8a2a2a] active:bg-[#e24b4a] active:text-white transition-colors"
+                >
+                  LUCHAR
+                </button>
+                {S.current.p?.char === 'frodo' && S.current.p.inv.includes('anillo') && (
+                  <button
+                    onClick={useRing}
+                    className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#2a2010] text-[#c8a84b] border border-[#4a3a20] hover:bg-[#3a3018] transition-colors"
+                  >
+                    ANILLO
+                  </button>
+                )}
+              </>
+            ) : termContext === 'interaction' ? (
+              // Interaction buttons
+              <>
+                <button
+                  onClick={tryInteract}
+                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#102010] text-[#8aaa6e] border border-[#2a3a1a] hover:bg-[#1a301a] transition-colors"
+                >
+                  HABLAR
+                </button>
+                <button
+                  onClick={() => {
+                    if (S.current) S.current.modMenuOpen = true
+                    forceUpdate(n => n + 1)
+                  }}
+                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#2a2010] text-[#c8a84b] border border-[#4a3a20] hover:bg-[#3a3018] transition-colors"
+                >
+                  DAR
+                </button>
+              </>
+            ) : (
+              // Exploration buttons
+              <>
+                <button
+                  onClick={tryInteract}
+                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#102010] text-[#8aaa6e] border border-[#2a3a1a] hover:bg-[#1a301a] transition-colors"
+                >
+                  HABLAR
+                </button>
+                <button
+                  onClick={() => {
+                    if (S.current) {
+                      S.current.termInput = '/'
+                      S.current.modMenuOpen = true
+                      forceUpdate(n => n + 1)
+                      inputRef.current?.focus()
+                    }
+                  }}
+                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#1a1a2a] text-[#9090dd] border border-[#2a2a4a] hover:bg-[#2a2a3a] transition-colors"
+                >
+                  /MODS
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -1791,16 +2299,17 @@ export default function GamePage() {
           <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
             TIERRA MEDIA
           </h1>
-          <p className="text-[#6a5a3a] text-sm mb-6">Elige tu héroe</p>
-          <div className="flex gap-4 flex-wrap justify-center">
+          <p className="text-[#6a5a3a] text-sm mb-4">Elige tu héroe</p>
+          
+          <div className="flex gap-4 flex-wrap justify-center mb-4">
             {Object.entries(CHARS).map(([key, char]) => (
               <button
                 key={key}
                 onClick={() => setSelectedChar(key)}
                 className={`p-4 rounded-lg border-2 transition-all ${selectedChar === key
-                    ? 'border-[#c8a84b] bg-[rgba(200,168,75,0.15)]'
-                    : 'border-[rgba(200,168,75,0.3)] bg-[rgba(40,30,20,0.5)] hover:border-[rgba(200,168,75,0.5)]'
-                  }`}
+                  ? 'border-[#c8a84b] bg-[rgba(200,168,75,0.15)]'
+                  : 'border-[rgba(200,168,75,0.3)] bg-[rgba(40,30,20,0.5)] hover:border-[rgba(200,168,75,0.5)]'
+                }`}
               >
                 <div className="w-16 h-16 flex items-center justify-center mb-2">
                   <CharPreview charKey={key} />
@@ -1814,10 +2323,39 @@ export default function GamePage() {
               </button>
             ))}
           </div>
+
+          {/* Game Mode Selection */}
+          <div className="flex gap-3 mb-4">
+            <button
+              onClick={() => setSelectedMode('exploration')}
+              className={`px-4 py-2 rounded-lg border transition-all text-sm ${selectedMode === 'exploration'
+                ? 'border-[#5a8a3a] bg-[rgba(90,138,58,0.2)] text-[#8aaa6e]'
+                : 'border-[rgba(90,138,58,0.3)] text-[#5a6a3a] hover:border-[rgba(90,138,58,0.5)]'
+              }`}
+            >
+              Exploración
+            </button>
+            <button
+              onClick={() => setSelectedMode('horde')}
+              className={`px-4 py-2 rounded-lg border transition-all text-sm ${selectedMode === 'horde'
+                ? 'border-[#e24b4a] bg-[rgba(226,75,74,0.2)] text-[#e24b4a]'
+                : 'border-[rgba(226,75,74,0.3)] text-[#8a4040] hover:border-[rgba(226,75,74,0.5)]'
+              }`}
+            >
+              Horda
+            </button>
+          </div>
+          <p className="text-[#5a6a3a] text-[10px] mb-4 text-center max-w-xs">
+            {selectedMode === 'exploration' 
+              ? 'Explora La Comarca libremente. Usa /nazgul para invocar enemigos.'
+              : 'Sobrevive 10 oleadas de Nazgûl. Protege a los aldeanos.'
+            }
+          </p>
+
           {selectedChar && (
             <button
-              onClick={() => startGame(selectedChar)}
-              className="mt-6 px-8 py-3 bg-[#c8a84b] text-[#1a1408] font-bold rounded-lg hover:bg-[#d8b85b] transition-colors"
+              onClick={() => startGame(selectedChar, selectedMode)}
+              className="px-8 py-3 bg-[#c8a84b] text-[#1a1408] font-bold rounded-lg hover:bg-[#d8b85b] transition-colors"
             >
               COMENZAR
             </button>
@@ -1828,7 +2366,7 @@ export default function GamePage() {
       {/* Dead Screen */}
       {screen === 'dead' && (
         <div className="absolute inset-0 bg-[rgba(60,5,5,0.93)] flex flex-col items-center justify-center">
-          <h1 className="text-[#c82020] text-3xl font-bold mb-4">¡HAS CAÍDO!</h1>
+          <h1 className="text-[#c82020] text-3xl font-bold mb-4">HAS CAIDO</h1>
           <p className="text-[#8a4040] text-sm mb-6">
             Pero la esperanza no se ha perdido...
           </p>
@@ -1845,13 +2383,13 @@ export default function GamePage() {
       {screen === 'gameover' && (
         <div className="absolute inset-0 bg-[rgba(5,2,2,0.97)] flex flex-col items-center justify-center p-4">
           <div className="text-[#4a1010] text-xs tracking-widest mb-2">
-            LA COMARCA HA CAÍDO
+            LA COMARCA HA CAIDO
           </div>
           <h1 className="text-[#8a2020] text-2xl font-bold mb-4">
             TODOS HAN SIDO CAPTURADOS
           </h1>
           <p className="text-[#6a4040] text-sm italic mb-6 text-center max-w-xs">
-            &ldquo;La oscuridad se cierne sobre la Comarca. Los hobbits han perdido toda esperanza...&rdquo;
+            La oscuridad se cierne sobre la Comarca. Los hobbits han perdido toda esperanza...
           </p>
           <button
             onClick={restartFromSelect}
@@ -1865,12 +2403,17 @@ export default function GamePage() {
       {/* Win Screen */}
       {screen === 'win' && (
         <div className="absolute inset-0 bg-[rgba(4,30,20,0.96)] flex flex-col items-center justify-center p-4">
-          <h1 className="text-[#c8a84b] text-3xl font-bold mb-4">¡VICTORIA!</h1>
+          <h1 className="text-[#c8a84b] text-3xl font-bold mb-4">VICTORIA</h1>
           <p className="text-[#5a8a3a] text-lg mb-2">
             Aldeanos salvados: {savedCount}/8
           </p>
+          {S.current?.gameMode === 'horde' && (
+            <p className="text-[#8aaa6e] text-sm mb-2">
+              Oleadas completadas: {S.current.wave}/10
+            </p>
+          )}
           <p className="text-[#4a6a3a] text-sm italic mb-6 text-center max-w-xs">
-            &ldquo;La Comarca está a salvo. La luz ha vencido a la oscuridad.&rdquo;
+            La Comarca está a salvo. La luz ha vencido a la oscuridad.
           </p>
           <button
             onClick={restartFromSelect}
@@ -1897,7 +2440,6 @@ function CharPreview({ charKey }: { charKey: string }) {
     const sc = 1.5
     const px = 32, py = 40
 
-    // Draw character sprite
     ctx.save()
     ctx.translate(px, py)
 
