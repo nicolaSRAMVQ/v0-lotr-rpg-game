@@ -146,6 +146,12 @@ interface Player {
   sweepAnim: number
   sweepAngle: number
   deathFrame: number
+  // Frodo dagger attack
+  daggerAnim: number
+  daggerAngle: number
+  // Gandalf staff attack
+  staffRayAnim: number
+  staffRayTarget: { x: number; y: number } | null
 }
 
 interface FX {
@@ -207,6 +213,7 @@ interface GameState {
   droppedItems: DroppedItem[]
   screenFlash: number
   groundMarks: { x: number; y: number; alpha: number }[]
+  gamePaused: boolean
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
@@ -409,6 +416,10 @@ export default function GamePage() {
         sweepAnim: 0,
         sweepAngle: 0,
         deathFrame: 0,
+        daggerAnim: 0,
+        daggerAngle: 0,
+        staffRayAnim: 0,
+        staffRayTarget: null,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -438,6 +449,7 @@ export default function GamePage() {
       droppedItems: [],
       screenFlash: 0,
       groundMarks: [],
+      gamePaused: false,
     }
 
     if (mode === 'exploration') {
@@ -679,13 +691,14 @@ export default function GamePage() {
     if (!S.current || !S.current.p || S.current.dlg.active) return
     const p = S.current.p
     if (p.atkCd > 0) return
-    p.atkCd = 28
+    
+    const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
 
     // Visual power based on character
     if (p.char === 'aragorn') {
-      // Arc sweep animation
+      // Arc sweep animation - 120 degrees
+      p.atkCd = 28
       p.sweepAnim = 20
-      const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
       p.sweepAngle = dirAngles[p.dir]
       
       // Spawn sweep particles
@@ -696,18 +709,98 @@ export default function GamePage() {
           y: p.y + Math.sin(angle) * T * 2,
           vx: Math.cos(angle) * 1.5,
           vy: Math.sin(angle) * 1.5,
-          color: '#c8c8d8',
+          color: '#c8a84b',
           life: 15,
           maxLife: 15,
         })
       }
-    } else if (p.char === 'frodo' && p.inv.includes('anillo')) {
-      // Frodo can activate ring with attack too
-      useRing()
+    } else if (p.char === 'frodo') {
+      // Frodo: Dagger attack - 90 degrees, shorter range, faster cooldown
+      p.atkCd = 50 // 0.8s cooldown (faster than Aragorn)
+      p.daggerAnim = 14
+      p.daggerAngle = dirAngles[p.dir]
+      
+      // Spawn silver/cold particles
+      for (let i = 0; i < 6; i++) {
+        const angle = p.daggerAngle - Math.PI / 4 + (Math.PI / 2) * (i / 6)
+        S.current.parts.push({
+          x: p.x + Math.cos(angle) * T * 1.5,
+          y: p.y + Math.sin(angle) * T * 1.5,
+          vx: Math.cos(angle) * 1.2,
+          vy: Math.sin(angle) * 1.2,
+          color: '#b4d2ff',
+          life: 12,
+          maxLife: 12,
+        })
+      }
+    } else if (p.char === 'gandalf') {
+      // Gandalf: Staff ray attack - 3.5 tiles range, 90 frame cooldown
+      p.atkCd = 90 // 1.5s cooldown
+      p.staffRayAnim = 12
+      
+      // Find target in direction (within 3.5 tiles and ±30 degrees)
+      const naz = S.current.nazgul
+      if (naz && naz.hp > 0 && naz.state !== 'dying') {
+        const dx = naz.x - p.x, dy = naz.y - p.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        const angleToNaz = Math.atan2(dy, dx)
+        const playerAngle = dirAngles[p.dir]
+        const angleDiff = Math.abs(Math.atan2(Math.sin(angleToNaz - playerAngle), Math.cos(angleToNaz - playerAngle)))
+        
+        if (dist < 3.5 * T && angleDiff < Math.PI / 6) {
+          // Hit!
+          p.staffRayTarget = { x: naz.x, y: naz.y }
+          naz.hp -= p.dmg
+          naz.invT = 10
+          
+          // Knockback
+          const knockDist = 2 * T
+          if (dist > 0) {
+            naz.x += (dx / dist) * knockDist
+            naz.y += (dy / dist) * knockDist
+            naz.x = Math.max(T, Math.min((WW - 1) * T, naz.x))
+            naz.y = Math.max(T, Math.min((WH - 1) * T, naz.y))
+          }
+          
+          S.current.fx.push({
+            x: naz.x,
+            y: naz.y - 20,
+            text: `-${p.dmg}`,
+            color: '#ffffd0',
+            vy: -1.1,
+            life: 40,
+          })
+          log('d', `¡Destello del báculo! -${p.dmg} HP al Nazgûl. (${Math.max(0, naz.hp)}/${naz.maxhp})`)
+          
+          // End particles at ray endpoint
+          for (let i = 0; i < 6; i++) {
+            S.current.parts.push({
+              x: naz.x,
+              y: naz.y,
+              vx: (Math.random() - 0.5) * 3,
+              vy: (Math.random() - 0.5) * 3,
+              color: '#c8a84b',
+              life: 15,
+              maxLife: 15,
+            })
+          }
+          
+          if (naz.hp <= 0) {
+            naz.state = 'dying'
+            naz.deathFrame = 0
+          }
+          return
+        }
+      }
+      // No target hit - just show ray in direction
+      p.staffRayTarget = {
+        x: p.x + Math.cos(dirAngles[p.dir]) * 3.5 * T,
+        y: p.y + Math.sin(dirAngles[p.dir]) * 3.5 * T
+      }
       return
     }
 
-    // Check all Nazgul
+    // Check all Nazgul for Aragorn and Frodo melee attacks
     const allNaz = S.current.nazgul ? [S.current.nazgul, ...S.current.nazgulList.filter(n => n !== S.current!.nazgul)] : S.current.nazgulList
     
     for (const naz of allNaz) {
@@ -715,31 +808,34 @@ export default function GamePage() {
       const dx = naz.x - p.x, dy = naz.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
       
-      // Aragorn has wider range with sweep
-      const effectiveRange = p.char === 'aragorn' ? p.range * 1.2 : p.range
+      // Aragorn has wider range, Frodo has shorter range (1.8T)
+      let effectiveRange = p.range
+      if (p.char === 'aragorn') effectiveRange = p.range * 1.2
+      if (p.char === 'frodo') effectiveRange = 1.8
       
       if (dist < effectiveRange * T) {
-        naz.hp -= p.dmg
+        // For Frodo, use fixed 6 damage
+        const dmg = p.char === 'frodo' ? 6 : p.dmg
+        naz.hp -= dmg
         naz.invT = 10
         S.current.fx.push({
           x: naz.x,
           y: naz.y - 20,
-          text: `-${p.dmg}`,
-          color: '#e24b4a',
+          text: `-${dmg}`,
+          color: p.char === 'frodo' ? '#b4d2ff' : '#e24b4a',
           vy: -1.1,
           life: 40,
         })
-        log('d', `¡Atacas al Nazgûl! -${p.dmg} HP. (${Math.max(0, naz.hp)}/${naz.maxhp})`)
+        log('d', `¡Atacas al Nazgûl! -${dmg} HP. (${Math.max(0, naz.hp)}/${naz.maxhp})`)
 
         if (naz.hp <= 0) {
-          // Start death animation instead of instant win
           naz.state = 'dying'
           naz.deathFrame = 0
           log('e', '¡El Nazgûl cae!')
         }
       }
     }
-  }, [log, useRing])
+  }, [log])
 
   // ============ INTERACTION ============
   const tryInteract = useCallback(() => {
@@ -790,7 +886,7 @@ export default function GamePage() {
 
   // ============ UPDATE ============
   const update = useCallback(() => {
-    if (!S.current || !S.current.p || !S.current.gameActive) return
+    if (!S.current || !S.current.p || !S.current.gameActive || S.current.gamePaused) return
     const st = S.current
     const p = st.p!
     st.frameCount++
@@ -804,6 +900,8 @@ export default function GamePage() {
     if (p.ringActive > 0) p.ringActive--
     if (p.ringShimmer > 0) p.ringShimmer--
     if (p.sweepAnim > 0) p.sweepAnim--
+    if (p.daggerAnim > 0) p.daggerAnim--
+    if (p.staffRayAnim > 0) p.staffRayAnim--
 
     // Scheduled events
     if (st.frameCount === 180 && st.gameMode === 'horde') {
@@ -1012,37 +1110,43 @@ export default function GamePage() {
     // Nazgul AI (handle all)
     const allNazgul = st.nazgul ? [st.nazgul] : []
     for (const naz of allNazgul) {
-      if (!naz || naz.hp <= 0) continue
+      if (!naz) continue
       
-      // Death animation
+      // Check if Nazgul should start dying (hp <= 0 but not yet dying)
+      if (naz.hp <= 0 && naz.state !== 'dying') {
+        naz.state = 'dying'
+        naz.deathFrame = 0
+        log('e', '¡El Nazgûl se desvanece en las sombras!')
+      }
+      
+      // Death animation (process even when hp <= 0)
       if (naz.state === 'dying') {
         naz.deathFrame++
         
+        // Frame 1-15: White flash
         if (naz.deathFrame === 1) {
-          // Freeze and scale
+          st.screenFlash = 6
         }
-        if (naz.deathFrame === 20) {
+        // Frame 15-50: Semi-transparent + explosion
+        if (naz.deathFrame === 15) {
           // Explosion particles
-          for (let i = 0; i < 16; i++) {
+          for (let i = 0; i < 12; i++) {
             st.parts.push({
               x: naz.x,
               y: naz.y,
               vx: (Math.random() - 0.5) * 5,
               vy: (Math.random() - 0.5) * 5,
               color: Math.random() > 0.5 ? '#1a0a20' : '#3a3a3a',
-              life: 40,
-              maxLife: 40,
+              life: 50,
+              maxLife: 50,
             })
           }
-          st.screenFlash = 3
         }
-        if (naz.deathFrame === 60) {
-          // Leave ground mark
+        // Frame 80: Leave ground mark and drop items
+        if (naz.deathFrame === 80) {
           st.groundMarks.push({ x: naz.x, y: naz.y, alpha: 0.6 })
-        }
-        if (naz.deathFrame >= 120) {
           // Drop items
-          const drops = ['lembas', 'miruvor', 'espada_rota']
+          const drops = ['lembas', 'miruvor']
           const numDrops = 1 + Math.floor(Math.random() * 2)
           for (let i = 0; i < numDrops; i++) {
             st.droppedItems.push({
@@ -1052,7 +1156,9 @@ export default function GamePage() {
               bouncePhase: Math.random() * Math.PI * 2,
             })
           }
-          
+        }
+        // Frame 90: Nazgul is dead
+        if (naz.deathFrame >= 90) {
           // Remove this nazgul
           if (st.nazgul === naz) {
             st.nazgul = null
@@ -1076,6 +1182,9 @@ export default function GamePage() {
         }
         continue
       }
+      
+      // Skip normal AI if dead
+      if (naz.hp <= 0) continue
       
       if (naz.atkT > 0) naz.atkT--
       if (naz.invT > 0) naz.invT--
@@ -1730,11 +1839,18 @@ export default function GamePage() {
     if (naz && (naz.hp > 0 || naz.state === 'dying')) {
       const nx = naz.x - sx, ny = naz.y - sy
 
-      // Death animation
-      if (naz.state === 'dying') {
-        const deathProgress = naz.deathFrame / 120
-        const scale = naz.deathFrame < 20 ? 1 + (naz.deathFrame / 20) * 0.3 : 1.3 - deathProgress * 0.3
-        ctx.globalAlpha = 1 - deathProgress
+    // Death animation (90 frames total per JSON spec)
+    if (naz.state === 'dying') {
+      const deathProgress = Math.min(1, naz.deathFrame / 90)
+      // Scale up then dissolve: frames 0-15 freeze, 15-50 scale up to 1.4x, 50-90 dissolve
+      const scale = naz.deathFrame < 15 ? 1 : 
+                   naz.deathFrame < 50 ? 1 + ((naz.deathFrame - 15) / 35) * 0.4 :
+                   1.4 - ((naz.deathFrame - 50) / 40) * 0.4
+      // Alpha: start at 1, go to 0.2 at frame 50, then 0 at frame 90
+      const alpha = naz.deathFrame < 15 ? 1 :
+                   naz.deathFrame < 50 ? 1 - ((naz.deathFrame - 15) / 35) * 0.8 :
+                   0.2 - ((naz.deathFrame - 50) / 40) * 0.2
+      ctx.globalAlpha = Math.max(0, alpha)
         ctx.save()
         ctx.translate(nx, ny)
         ctx.scale(scale, scale)
@@ -1770,7 +1886,7 @@ export default function GamePage() {
     // Player
     const px = p.x - sx, py = p.y - sy
 
-    // Aragorn sweep arc
+    // Aragorn sweep arc (120 degrees)
     if (p.char === 'aragorn' && p.sweepAnim > 0) {
       const progress = p.sweepAnim / 20
       ctx.strokeStyle = `rgba(200,168,75,${progress * 0.6})`
@@ -1779,7 +1895,33 @@ export default function GamePage() {
       ctx.arc(px, py, T * 2.4, p.sweepAngle - Math.PI / 3, p.sweepAngle + Math.PI / 3)
       ctx.stroke()
     }
-
+    
+    // Frodo dagger sweep (90 degrees, shorter range, silver/cold color)
+    if (p.char === 'frodo' && p.daggerAnim > 0) {
+      const progress = p.daggerAnim / 14
+      ctx.strokeStyle = `rgba(180,210,255,${progress * 0.7})`
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.arc(px, py, T * 1.8, p.daggerAngle - Math.PI / 4, p.daggerAngle + Math.PI / 4)
+      ctx.stroke()
+    }
+    
+    // Gandalf staff ray (white-golden beam)
+    if (p.char === 'gandalf' && p.staffRayAnim > 0 && p.staffRayTarget) {
+      const progress = p.staffRayAnim / 12
+      const gradient = ctx.createLinearGradient(px + 16, py - 20, p.staffRayTarget.x - sx, p.staffRayTarget.y - sy)
+      gradient.addColorStop(0, '#ffffd0')
+      gradient.addColorStop(1, '#c8a84b')
+      ctx.strokeStyle = gradient
+      ctx.lineWidth = 4
+      ctx.globalAlpha = progress
+      ctx.beginPath()
+      ctx.moveTo(px + 14, py - 36) // Staff top position
+      ctx.lineTo(p.staffRayTarget.x - sx, p.staffRayTarget.y - sy)
+      ctx.stroke()
+      ctx.globalAlpha = 1
+    }
+    
     // Ring shimmer for Frodo
     if (p.char === 'frodo' && p.ringShimmer > 0) {
       const shimmerAlpha = (p.ringShimmer / 300) * (0.3 + 0.2 * Math.sin(st.frameCount * 0.3))
@@ -2173,8 +2315,8 @@ export default function GamePage() {
             </div>
           )}
 
-          {/* Input */}
-          <div className="flex items-center h-5 px-2 border-t border-[#2a3a1a] relative">
+          {/* Input - font-size 16px to prevent iOS zoom, scale down visually */}
+          <div className="flex items-center h-5 px-2 border-t border-[#2a3a1a] relative overflow-hidden">
             <span className="text-[#5a6a3a] text-[9px] mr-1">›</span>
             <input
               ref={inputRef}
@@ -2182,8 +2324,15 @@ export default function GamePage() {
               value={S.current.termInput}
               onChange={handleTermInput}
               onKeyDown={handleTermKeyDown}
+              onFocus={() => {
+                if (S.current) S.current.gamePaused = true
+              }}
+              onBlur={() => {
+                if (S.current) S.current.gamePaused = false
+              }}
               placeholder="escribe / para mods..."
-              className="flex-1 bg-transparent text-[#8aaa6e] text-[9px] outline-none placeholder:text-[#3a4a2a]"
+              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a]"
+              style={{ fontSize: '16px', transform: 'scale(0.56)', transformOrigin: 'left center', width: '180%' }}
             />
           </div>
 
@@ -2229,20 +2378,24 @@ export default function GamePage() {
                 </button>
               )
             ) : termContext === 'combat' ? (
-              // Combat buttons
+              // Combat buttons - character-specific labels
               <>
                 <button
-                  onClick={doAttack}
+                  onTouchStart={(e) => e.preventDefault()}
+                  onClick={(e) => { e.preventDefault(); doAttack() }}
                   className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#6a1a1a] text-[#e24b4a] border border-[#8a2a2a] hover:bg-[#8a2a2a] active:bg-[#e24b4a] active:text-white transition-colors"
                 >
-                  LUCHAR
+                  {S.current.p?.char === 'frodo' ? '⚔ DAGA' : 
+                   S.current.p?.char === 'gandalf' ? '✦ BÁCULO' : 
+                   '⚔ ESPADA'}
                 </button>
                 {S.current.p?.char === 'frodo' && S.current.p.inv.includes('anillo') && (
                   <button
-                    onClick={useRing}
+                    onTouchStart={(e) => e.preventDefault()}
+                    onClick={(e) => { e.preventDefault(); useRing() }}
                     className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#2a2010] text-[#c8a84b] border border-[#4a3a20] hover:bg-[#3a3018] transition-colors"
                   >
-                    ANILLO
+                    💍 ANILLO
                   </button>
                 )}
               </>
@@ -2250,13 +2403,16 @@ export default function GamePage() {
               // Interaction buttons
               <>
                 <button
-                  onClick={tryInteract}
+                  onTouchStart={(e) => e.preventDefault()}
+                  onClick={(e) => { e.preventDefault(); tryInteract() }}
                   className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#102010] text-[#8aaa6e] border border-[#2a3a1a] hover:bg-[#1a301a] transition-colors"
                 >
                   HABLAR
                 </button>
                 <button
-                  onClick={() => {
+                  onTouchStart={(e) => e.preventDefault()}
+                  onClick={(e) => {
+                    e.preventDefault()
                     if (S.current) S.current.modMenuOpen = true
                     forceUpdate(n => n + 1)
                   }}
@@ -2269,18 +2425,20 @@ export default function GamePage() {
               // Exploration buttons
               <>
                 <button
-                  onClick={tryInteract}
+                  onTouchStart={(e) => e.preventDefault()}
+                  onClick={(e) => { e.preventDefault(); tryInteract() }}
                   className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#102010] text-[#8aaa6e] border border-[#2a3a1a] hover:bg-[#1a301a] transition-colors"
                 >
                   HABLAR
                 </button>
                 <button
-                  onClick={() => {
+                  onTouchStart={(e) => e.preventDefault()}
+                  onClick={(e) => {
+                    e.preventDefault()
                     if (S.current) {
                       S.current.termInput = '/'
                       S.current.modMenuOpen = true
                       forceUpdate(n => n + 1)
-                      inputRef.current?.focus()
                     }
                   }}
                   className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#1a1a2a] text-[#9090dd] border border-[#2a2a4a] hover:bg-[#2a2a3a] transition-colors"

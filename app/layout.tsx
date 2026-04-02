@@ -6,6 +6,13 @@ import './globals.css'
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+}
+
 export const metadata: Metadata = {
   title: 'LOTR: Tierra Media RPG',
   description: 'Protect Hobbiton from the Nazgul - A Lord of the Rings pixel art RPG',
