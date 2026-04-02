@@ -230,6 +230,7 @@ export default function GamePage() {
   const [selectedChar, setSelectedChar] = useState<string | null>(null)
   const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
   const [, forceUpdate] = useState(0)
+  const [isCompact, setIsCompact] = useState(false) // height < 700px responsive mode
 
   // ============ HELPERS ============
   const log = useCallback((type: string, msg: string) => {
@@ -1619,11 +1620,13 @@ export default function GamePage() {
     const mctx = minimapRef.current?.getContext('2d')
     if (!mctx || !S.current) return
 
+    const MW = 64, MH = 64
     mctx.fillStyle = '#0a0804'
-    mctx.fillRect(0, 0, 100, 70)
+    mctx.fillRect(0, 0, MW, MH)
 
     const st = S.current
-    const scale = 100 / WW
+    const scaleX = MW / WW
+    const scaleY = MH / WH
 
     for (let ty = 0; ty < WH; ty++) {
       for (let tx = 0; tx < WW; tx++) {
@@ -1637,34 +1640,34 @@ export default function GamePage() {
 
         if (tile.type !== 'grass') {
           mctx.fillStyle = color
-          mctx.fillRect(tx * scale, ty * scale * (70 / WH), scale, scale * (70 / WH))
+          mctx.fillRect(tx * scaleX, ty * scaleY, Math.ceil(scaleX), Math.ceil(scaleY))
         }
       }
     }
 
     for (const v of st.villagers) {
-      const mx = (v.x / T) * scale, my = (v.y / T) * scale * (70 / WH)
+      const mx = (v.x / T) * scaleX, my = (v.y / T) * scaleY
       mctx.fillStyle = v.state === 'captured' ? '#5a1010' : v.state === 'flee' ? '#e08040' : '#8aaa6e'
       mctx.fillRect(mx - 1, my - 1, 2, 2)
     }
 
     if (st.gandalfAlly) {
-      const mx = (st.gandalfAlly.x / T) * scale, my = (st.gandalfAlly.y / T) * scale * (70 / WH)
+      const mx = (st.gandalfAlly.x / T) * scaleX, my = (st.gandalfAlly.y / T) * scaleY
       mctx.fillStyle = '#e8e0a0'
       mctx.fillRect(mx - 1.5, my - 1.5, 3, 3)
     }
 
     if (st.nazgul && st.nazgul.hp > 0) {
-      const mx = (st.nazgul.x / T) * scale, my = (st.nazgul.y / T) * scale * (70 / WH)
+      const mx = (st.nazgul.x / T) * scaleX, my = (st.nazgul.y / T) * scaleY
       mctx.fillStyle = Math.floor(Date.now() / 180) % 2 === 0 ? '#ff4020' : '#8a2010'
-      mctx.fillRect(mx - 2.5, my - 2.5, 5, 5)
+      mctx.fillRect(mx - 2, my - 2, 4, 4)
     }
 
     if (st.p) {
-      const mx = (st.p.x / T) * scale, my = (st.p.y / T) * scale * (70 / WH)
+      const mx = (st.p.x / T) * scaleX, my = (st.p.y / T) * scaleY
       mctx.fillStyle = '#c8a84b'
       mctx.beginPath()
-      mctx.arc(mx, my, 3, 0, Math.PI * 2)
+      mctx.arc(mx, my, 2.5, 0, Math.PI * 2)
       mctx.fill()
     }
   }, [])
@@ -2084,15 +2087,26 @@ export default function GamePage() {
   // ============ RESIZE ============
   useEffect(() => {
     const handleResize = () => {
-      if (canvasRef.current && rootRef.current) {
-        canvasRef.current.width = rootRef.current.offsetWidth
-        canvasRef.current.height = rootRef.current.offsetHeight
+      if (canvasRef.current) {
+        // Get the parent container (game area) dimensions
+        const parent = canvasRef.current.parentElement
+        if (parent) {
+          canvasRef.current.width = parent.clientWidth
+          canvasRef.current.height = parent.clientHeight
+        }
       }
+      // Check for compact mode (height < 700px)
+      setIsCompact(window.innerHeight < 700)
     }
 
     handleResize()
     window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
+    // Also handle orientation changes on mobile
+    window.addEventListener('orientationchange', () => setTimeout(handleResize, 100))
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      window.removeEventListener('orientationchange', handleResize)
+    }
   }, [])
 
   // ============ GAME LOOP START ============
@@ -2183,122 +2197,60 @@ export default function GamePage() {
     ? MOD_COMMANDS.filter(m => m.cmd.startsWith(S.current!.termInput))
     : MOD_COMMANDS
 
+  // Inventory panel state
+  const [invPanelOpen, setInvPanelOpen] = useState(false)
+
   return (
     <div
       ref={rootRef}
-      className="relative w-full h-[640px] bg-[#0a0804] rounded-lg overflow-hidden select-none"
+      className="relative w-full h-dvh min-h-[500px] max-h-[900px] bg-[#0a0804] flex flex-col overflow-hidden select-none"
       style={{ touchAction: 'none' }}
     >
-      <canvas
-        ref={canvasRef}
-        className="block w-full h-full"
-        style={{ imageRendering: 'pixelated' }}
-      />
-
-      {/* Minimap */}
-      {screen === 'game' && (
-        <div className="absolute top-2.5 left-2.5 rounded border border-[rgba(200,168,75,0.3)] overflow-hidden">
-          <canvas ref={minimapRef} width={100} height={70} />
-        </div>
-      )}
-
-      {/* Stats Box */}
+      {/* ============ TOP HUD ZONE ============ */}
       {screen === 'game' && S.current?.p && (
-        <div className="absolute top-2.5 right-2.5 text-right pointer-events-none">
-          <div className="text-[#c8a84b] text-[9px] tracking-[2px] font-bold">
-            {CHARS[S.current.p.char].name}
-          </div>
-          <div className="flex gap-1 justify-end mt-1">
-            {Array.from({ length: S.current.p.maxhp }).map((_, i) => (
-              <div
-                key={i}
-                className={`w-2 h-2 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
-              />
-            ))}
-          </div>
-          <div className="text-[#5a8a3a] text-[8px] mt-1">
-            {S.current.gameMode === 'horde' && S.current.wave > 0 
-              ? `OLEADA ${S.current.wave}/10 | Aldeanos: ${savedCount}/8`
-              : `Aldeanos: ${savedCount}/8`
-            }
-          </div>
-          {S.current.heroMode && (
-            <div className="text-[#c8a84b] text-[8px] animate-pulse">INMORTAL</div>
-          )}
-          {S.current.p.ringActive > 0 && (
-            <div className="text-[#c8a84b] text-[8px] animate-pulse">INVISIBLE</div>
-          )}
-        </div>
-      )}
-
-      {/* Inventory */}
-      {screen === 'game' && S.current?.p && (
-        <div className="absolute top-20 right-2.5 flex flex-col gap-1">
-          {S.current.p.inv.map((item, i) => (
-            <button
-              key={i}
-              onClick={() => useItem(i)}
-              className="w-7 h-7 bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.3)] rounded flex items-center justify-center text-sm hover:bg-[rgba(60,50,40,0.8)] transition-colors"
-              title={ITEMS[item]?.desc}
-            >
-              {ITEMS[item]?.icon || '?'}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Joystick */}
-      {screen === 'game' && (
-        <div
-          ref={joystickRef}
-          className="absolute bottom-2 left-2 w-[80px] h-[80px] rounded-full bg-[rgba(200,168,75,0.07)] border-2 border-[rgba(200,168,75,0.18)] flex items-center justify-center z-30"
-          onTouchStart={handleJoystickStart}
-          onTouchMove={handleJoystickMove}
-          onTouchEnd={handleJoystickEnd}
-          onMouseDown={handleJoystickStart}
-          onMouseMove={handleJoystickMove}
-          onMouseUp={handleJoystickEnd}
-          onMouseLeave={handleJoystickEnd}
-        >
-          <div
-            className="w-8 h-8 rounded-full bg-[rgba(200,168,75,0.22)] border border-[rgba(200,168,75,0.4)]"
-            style={{
-              transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`,
-            }}
-          />
-        </div>
-      )}
-
-      {/* Floating Terminal Widget */}
-      {screen === 'game' && S.current && (
-        <div 
-          className="absolute bottom-2 right-2 z-20 rounded-[10px] border border-[#2a3a1a] overflow-hidden"
-          style={{ 
-            left: '90px',
-            background: 'rgba(10,12,8,0.93)',
-          }}
-        >
-          {/* Header */}
-          <div 
-            className="flex items-center justify-between px-2 h-5 border-b border-[#2a3a1a] cursor-pointer"
-            onClick={() => {
-              if (S.current) {
-                S.current.termOpen = !S.current.termOpen
-                forceUpdate(n => n + 1)
-              }
-            }}
-          >
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#5a8a3a] animate-pulse" />
-              <span className="text-[8px] text-[#5a6a3a] tracking-wider font-bold">TERMINAL</span>
+        <div className="flex-none p-2 pb-0 flex flex-col gap-1.5 z-10">
+          {/* Top Row: Minimap + Status */}
+          <div className="flex items-start justify-between">
+            {/* Minimap */}
+            <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden bg-[rgba(0,0,0,0.5)]">
+              <canvas ref={minimapRef} width={64} height={64} className="block" />
             </div>
-            <span className="text-[10px] text-[#5a6a3a]">{S.current.termOpen ? '▾' : '▴'}</span>
+            
+            {/* Status Text */}
+            <div className="text-right">
+              <div className="text-[#c8a84b] text-[10px] tracking-[1px] font-bold">
+                {CHARS[S.current.p.char].name}
+              </div>
+              <div className="flex gap-0.5 justify-end mt-0.5">
+                {Array.from({ length: S.current.p.maxhp }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`w-1.5 h-1.5 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
+                  />
+                ))}
+              </div>
+              <div className="text-[#8aaa6e] text-[9px] mt-0.5 font-medium">
+                {S.current.gameMode === 'horde' && S.current.wave > 0 
+                  ? `OLEADA ${S.current.wave}/10 | Aldeanos: ${savedCount}/8`
+                  : `Aldeanos: ${savedCount}/8`
+                }
+              </div>
+              {S.current.heroMode && (
+                <div className="text-[#c8a84b] text-[8px] animate-pulse">INMORTAL</div>
+              )}
+              {S.current.p.ringActive > 0 && (
+                <div className="text-[#c8a84b] text-[8px] animate-pulse">INVISIBLE</div>
+              )}
+            </div>
           </div>
 
-          {/* Log (collapsible) */}
-          {S.current.termOpen && (
-            <div className="h-11 overflow-hidden px-2 py-1 font-mono text-[7px] leading-tight">
-              {S.current.logs.slice(-4).map((l, i) => (
+          {/* Terminal (2 lines max, 1 line in compact mode, auto-fade style) */}
+          <div 
+            className="rounded-lg border border-[#2a3a1a] overflow-hidden"
+            style={{ background: 'rgba(0,0,0,0.7)' }}
+          >
+            <div className={`px-2 py-1 font-mono text-[10px] leading-snug overflow-hidden ${isCompact ? 'max-h-[1.3em]' : 'max-h-[2.5em]'}`}>
+              {S.current.logs.slice(isCompact ? -1 : -2).map((l, i) => (
                 <div
                   key={i}
                   className={
@@ -2308,145 +2260,219 @@ export default function GamePage() {
                     l.type === 's' ? 'text-[#5a6a3a]' :
                     'text-[#8aaa6e]'
                   }
+                  style={{ opacity: i === 0 ? 0.6 : 1 }}
                 >
-                  [{l.time}] {l.msg}
+                  {l.msg}
                 </div>
               ))}
             </div>
-          )}
+          </div>
+        </div>
+      )}
 
-          {/* Input - font-size 16px to prevent iOS zoom, scale down visually */}
-          <div className="flex items-center h-5 px-2 border-t border-[#2a3a1a] relative overflow-hidden">
-            <span className="text-[#5a6a3a] text-[9px] mr-1">›</span>
-            <input
-              ref={inputRef}
-              type="text"
-              value={S.current.termInput}
-              onChange={handleTermInput}
-              onKeyDown={handleTermKeyDown}
-              onFocus={() => {
-                if (S.current) S.current.gamePaused = true
+      {/* ============ GAME AREA (Canvas) ============ */}
+      <div className="flex-1 relative min-h-[300px] flex items-center justify-center">
+        <canvas
+          ref={canvasRef}
+          className="block w-full h-full"
+          style={{ imageRendering: 'pixelated' }}
+        />
+        
+        {/* Minimap for non-game screens placeholder */}
+        {screen !== 'game' && (
+          <canvas ref={minimapRef} width={64} height={64} className="hidden" />
+        )}
+      </div>
+
+      {/* ============ BOTTOM HUD ZONE ============ */}
+      {screen === 'game' && S.current && (
+        <div className="flex-none p-2 sm:p-3 flex items-end justify-between gap-2 sm:gap-4 z-10">
+          {/* Joystick (left) - 80px in compact, 96px normal */}
+          <div
+            ref={joystickRef}
+            className={`${isCompact ? 'w-20 h-20' : 'w-24 h-24'} rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0`}
+            style={{ opacity: 0.8 }}
+            onTouchStart={handleJoystickStart}
+            onTouchMove={handleJoystickMove}
+            onTouchEnd={handleJoystickEnd}
+            onMouseDown={handleJoystickStart}
+            onMouseMove={handleJoystickMove}
+            onMouseUp={handleJoystickEnd}
+            onMouseLeave={handleJoystickEnd}
+          >
+            <div
+              className={`${isCompact ? 'w-8 h-8' : 'w-10 h-10'} rounded-full bg-[rgba(200,168,75,0.25)] border border-[rgba(200,168,75,0.5)]`}
+              style={{
+                transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`,
               }}
-              onBlur={() => {
-                if (S.current) S.current.gamePaused = false
-              }}
-              placeholder="escribe / para mods..."
-              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a]"
-              style={{ fontSize: '16px', transform: 'scale(0.56)', transformOrigin: 'left center', width: '180%' }}
             />
           </div>
 
-          {/* Mod Menu (floating above) */}
-          {S.current.modMenuOpen && (
-            <div 
-              className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-[#3a4a2a] p-1.5 max-h-32 overflow-y-auto"
-              style={{ background: 'rgba(10,12,8,0.97)' }}
+          {/* Action Bar (right) - 5 icon buttons (4 in compact mode) */}
+          <div className={`flex ${isCompact ? 'gap-1.5' : 'gap-2'} items-center`}>
+            {/* Attack Button */}
+            <button
+              onTouchStart={(e) => e.preventDefault()}
+              onClick={(e) => { e.preventDefault(); doAttack() }}
+              className={`${isCompact ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'} rounded-xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center active:bg-[#8a2a2a] active:scale-95 transition-all`}
+              title={S.current.p?.char === 'frodo' ? 'Daga' : S.current.p?.char === 'gandalf' ? 'Báculo' : 'Espada'}
             >
+              {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
+            </button>
+
+            {/* Potion/Item Button */}
+            <button
+              onTouchStart={(e) => e.preventDefault()}
+              onClick={(e) => { 
+                e.preventDefault()
+                const lembasIdx = S.current?.p?.inv.indexOf('lembas') ?? -1
+                const miruvorIdx = S.current?.p?.inv.indexOf('miruvor') ?? -1
+                if (miruvorIdx >= 0) useItem(miruvorIdx)
+                else if (lembasIdx >= 0) useItem(lembasIdx)
+              }}
+              className={`${isCompact ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'} rounded-xl bg-[#1a3020] border-2 border-[#2a4a30] flex items-center justify-center active:bg-[#2a4030] active:scale-95 transition-all`}
+              title="Usar poción"
+            >
+              🧴
+            </button>
+
+            {/* Food/Lembas Button - hidden in compact mode */}
+            {!isCompact && (
+              <button
+                onTouchStart={(e) => e.preventDefault()}
+                onClick={(e) => { 
+                  e.preventDefault()
+                  const lembasIdx = S.current?.p?.inv.indexOf('lembas') ?? -1
+                  if (lembasIdx >= 0) useItem(lembasIdx)
+                }}
+                className="w-14 h-14 rounded-xl bg-[#2a2010] border-2 border-[#4a3a20] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all"
+                title="Comer lembas"
+              >
+                🍞
+              </button>
+            )}
+
+            {/* Talk/Interact Button */}
+            <button
+              onTouchStart={(e) => e.preventDefault()}
+              onClick={(e) => { e.preventDefault(); tryInteract() }}
+              className={`${isCompact ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'} rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center active:bg-[#1a2a3a] active:scale-95 transition-all`}
+              title="Hablar"
+            >
+              💬
+            </button>
+
+            {/* Custom/Menu Button */}
+            <button
+              onTouchStart={(e) => e.preventDefault()}
+              onClick={(e) => { 
+                e.preventDefault()
+                setInvPanelOpen(!invPanelOpen)
+              }}
+              className={`${isCompact ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'} rounded-xl bg-[#1a1a2a] border-2 border-[#2a2a4a] flex items-center justify-center active:bg-[#2a2a3a] active:scale-95 transition-all`}
+              title="Inventario"
+            >
+              🎒
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============ INVENTORY PANEL OVERLAY ============ */}
+      {screen === 'game' && invPanelOpen && S.current?.p && (
+        <div 
+          className="absolute right-0 top-0 bottom-0 w-[30%] min-w-[180px] max-w-[300px] z-30 flex flex-col border-l border-[rgba(200,168,75,0.3)]"
+          style={{ background: 'rgba(10,12,8,0.95)' }}
+        >
+          {/* Panel Header */}
+          <div className="flex items-center justify-between p-3 border-b border-[rgba(200,168,75,0.2)]">
+            <span className="text-[#c8a84b] text-sm font-bold tracking-wider">INVENTARIO</span>
+            <button 
+              onClick={() => setInvPanelOpen(false)}
+              className="w-6 h-6 rounded bg-[rgba(200,168,75,0.1)] text-[#c8a84b] flex items-center justify-center text-xs"
+            >
+              ✕
+            </button>
+          </div>
+          
+          {/* Items List */}
+          <div className="flex-1 p-3 overflow-y-auto">
+            {S.current.p.inv.length === 0 ? (
+              <div className="text-[#5a6a3a] text-xs text-center py-4">Inventario vacío</div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {S.current.p.inv.map((item, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { useItem(i); setInvPanelOpen(false) }}
+                    className="flex items-center gap-3 p-2 rounded-lg bg-[rgba(40,30,20,0.6)] border border-[rgba(200,168,75,0.2)] hover:bg-[rgba(60,50,40,0.6)] transition-colors"
+                  >
+                    <span className="text-2xl">{ITEMS[item]?.icon || '?'}</span>
+                    <div className="text-left flex-1">
+                      <div className="text-[#c8a84b] text-xs font-medium capitalize">{item}</div>
+                      <div className="text-[#5a6a3a] text-[10px]">{ITEMS[item]?.desc}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Inventory Toggle Button (visible when panel is closed) */}
+      {screen === 'game' && !invPanelOpen && S.current?.p && S.current.p.inv.length > 0 && (
+        <button
+          onClick={() => setInvPanelOpen(true)}
+          className="absolute right-0 top-1/2 -translate-y-1/2 w-8 h-16 rounded-l-lg bg-[rgba(40,30,20,0.9)] border border-r-0 border-[rgba(200,168,75,0.3)] flex items-center justify-center z-20"
+        >
+          <span className="text-[#c8a84b] text-lg">🎒</span>
+        </button>
+      )}
+
+      {/* ============ MOD MENU OVERLAY ============ */}
+      {screen === 'game' && S.current?.modMenuOpen && (
+        <div 
+          className="absolute inset-0 z-40 flex items-center justify-center bg-[rgba(0,0,0,0.7)]"
+          onClick={() => {
+            if (S.current) S.current.modMenuOpen = false
+            forceUpdate(n => n + 1)
+          }}
+        >
+          <div 
+            className="w-[90%] max-w-[320px] rounded-xl border border-[#3a4a2a] p-4"
+            style={{ background: 'rgba(10,12,8,0.98)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[#5a8a3a] text-xs font-bold tracking-wider mb-3">COMANDOS /MODS</div>
+            <div className="flex flex-col gap-1 max-h-[300px] overflow-y-auto">
               {filteredMods.map((m, i) => (
                 <button
                   key={i}
                   onClick={() => executeCommand(m.cmd)}
-                  className="w-full text-left px-2 py-1 text-[8px] hover:bg-[rgba(90,138,58,0.2)] rounded flex justify-between items-center"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-[rgba(90,138,58,0.2)] rounded-lg flex justify-between items-center"
                 >
                   <span className="text-[#8aaa6e] font-mono">{m.cmd}</span>
-                  <span className="text-[#5a6a3a]">{m.desc}</span>
+                  <span className="text-[#5a6a3a] text-xs">{m.desc}</span>
                 </button>
               ))}
             </div>
-          )}
-
-          {/* Contextual Button Bar */}
-          <div className="flex gap-1 p-1 border-t border-[#2a3a1a]">
-            {S.current.dlg.active ? (
-              // Dialog options
-              S.current.dlg.lineIdx === S.current.dlg.lines.length - 1 ? (
-                S.current.dlg.opts.slice(0, 3).map((opt, i) => (
-                  <button
-                    key={i}
-                    onClick={() => selectDlgOpt(opt)}
-                    className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[rgba(200,168,75,0.3)] hover:bg-[rgba(200,168,75,0.25)] transition-colors"
-                  >
-                    {opt.l}
-                  </button>
-                ))
-              ) : (
-                <button
-                  onClick={advanceDlg}
-                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[rgba(200,168,75,0.3)] hover:bg-[rgba(200,168,75,0.25)] transition-colors"
-                >
-                  Continuar...
-                </button>
-              )
-            ) : termContext === 'combat' ? (
-              // Combat buttons - character-specific labels
-              <>
-                <button
-                  onTouchStart={(e) => e.preventDefault()}
-                  onClick={(e) => { e.preventDefault(); doAttack() }}
-                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#6a1a1a] text-[#e24b4a] border border-[#8a2a2a] hover:bg-[#8a2a2a] active:bg-[#e24b4a] active:text-white transition-colors"
-                >
-                  {S.current.p?.char === 'frodo' ? '⚔ DAGA' : 
-                   S.current.p?.char === 'gandalf' ? '✦ BÁCULO' : 
-                   '⚔ ESPADA'}
-                </button>
-                {S.current.p?.char === 'frodo' && S.current.p.inv.includes('anillo') && (
-                  <button
-                    onTouchStart={(e) => e.preventDefault()}
-                    onClick={(e) => { e.preventDefault(); useRing() }}
-                    className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#2a2010] text-[#c8a84b] border border-[#4a3a20] hover:bg-[#3a3018] transition-colors"
-                  >
-                    💍 ANILLO
-                  </button>
-                )}
-              </>
-            ) : termContext === 'interaction' ? (
-              // Interaction buttons
-              <>
-                <button
-                  onTouchStart={(e) => e.preventDefault()}
-                  onClick={(e) => { e.preventDefault(); tryInteract() }}
-                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#102010] text-[#8aaa6e] border border-[#2a3a1a] hover:bg-[#1a301a] transition-colors"
-                >
-                  HABLAR
-                </button>
-                <button
-                  onTouchStart={(e) => e.preventDefault()}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    if (S.current) S.current.modMenuOpen = true
-                    forceUpdate(n => n + 1)
-                  }}
-                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#2a2010] text-[#c8a84b] border border-[#4a3a20] hover:bg-[#3a3018] transition-colors"
-                >
-                  DAR
-                </button>
-              </>
-            ) : (
-              // Exploration buttons
-              <>
-                <button
-                  onTouchStart={(e) => e.preventDefault()}
-                  onClick={(e) => { e.preventDefault(); tryInteract() }}
-                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#102010] text-[#8aaa6e] border border-[#2a3a1a] hover:bg-[#1a301a] transition-colors"
-                >
-                  HABLAR
-                </button>
-                <button
-                  onTouchStart={(e) => e.preventDefault()}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    if (S.current) {
-                      S.current.termInput = '/'
-                      S.current.modMenuOpen = true
-                      forceUpdate(n => n + 1)
-                    }
-                  }}
-                  className="flex-1 px-2 py-1.5 rounded text-[8px] font-bold bg-[#1a1a2a] text-[#9090dd] border border-[#2a2a4a] hover:bg-[#2a2a3a] transition-colors"
-                >
-                  /MODS
-                </button>
-              </>
-            )}
+            {/* Input for custom commands */}
+            <div className="flex items-center mt-3 h-10 px-3 rounded-lg border border-[#2a3a1a] bg-[rgba(0,0,0,0.3)]">
+              <span className="text-[#5a6a3a] mr-2">›</span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={S.current.termInput}
+                onChange={handleTermInput}
+                onKeyDown={handleTermKeyDown}
+                onFocus={() => { if (S.current) S.current.gamePaused = true }}
+                onBlur={() => { if (S.current) S.current.gamePaused = false }}
+                placeholder="/comando..."
+                className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a]"
+                style={{ fontSize: '16px' }}
+              />
+            </div>
           </div>
         </div>
       )}
