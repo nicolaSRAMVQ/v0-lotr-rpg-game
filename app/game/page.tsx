@@ -2158,11 +2158,11 @@ export default function GamePage() {
                 key={i}
                 style={{
                   fontSize: '11px',
-                  lineHeight: '18px',
-                  wordBreak: 'break-word',
-                  whiteSpace: 'normal',
+                  lineHeight: '20px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                   fontFamily: 'monospace',
-                  marginBottom: '2px',
                   color: l.type === 'i' ? '#8aaa6e' :
                          l.type === 'e' ? '#c8a84b' :
                          l.type === 'd' ? '#e24b4a' :
