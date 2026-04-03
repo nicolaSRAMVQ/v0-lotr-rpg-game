@@ -146,16 +146,10 @@ interface Player {
   sweepAnim: number
   sweepAngle: number
   deathFrame: number
-  // Frodo dagger attack
   daggerAnim: number
   daggerAngle: number
-  // Gandalf staff attack
   staffRayAnim: number
   staffRayTarget: { x: number; y: number } | null
-  // Level system
-  xp: number
-  maxXp: number
-  level: number
 }
 
 interface FX {
@@ -222,32 +216,27 @@ interface GameState {
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
 
-// XP table for leveling (index = level-1)
-const XP_TABLE = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200]
-
 export default function GamePage() {
   const rootRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const minimapRef = useRef<HTMLCanvasElement>(null)
-  const logRef = useRef<HTMLDivElement>(null)
   const S = useRef<GameState | null>(null)
   const animRef = useRef<number>(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const logRef = useRef<HTMLDivElement>(null)
 
   const [screen, setScreen] = useState<'charsel' | 'game' | 'dead' | 'gameover' | 'win'>('charsel')
   const [selectedChar, setSelectedChar] = useState<string | null>(null)
   const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
   const [, forceUpdate] = useState(0)
-  const [isCompact, setIsCompact] = useState(false) // height < 700px responsive mode
+  const [isCompact, setIsCompact] = useState(false)
 
-  // ============ HELPERS ============
   const log = useCallback((type: string, msg: string) => {
     if (!S.current) return
     const now = new Date()
     const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
     S.current.logs.push({ type, msg, time })
     if (S.current.logs.length > 80) S.current.logs.shift()
-    // Auto-scroll to bottom
     setTimeout(() => {
       if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
     }, 10)
@@ -258,7 +247,6 @@ export default function GamePage() {
     S.current.fade = { text, color, life: 90 }
   }, [])
 
-  // ============ MAP BUILDING ============
   const buildMap = useCallback(() => {
     const map: Tile[][] = []
     for (let y = 0; y < WH; y++) {
@@ -326,7 +314,6 @@ export default function GamePage() {
     return SOLID.has(S.current.map[ty][tx].type)
   }, [])
 
-  // ============ SPAWN FUNCTIONS ============
   const spawnVillagers = useCallback((): Villager[] => {
     return VILLAGER_DEFS.map((def, i) => {
       const hole = HOLES[i]
@@ -402,7 +389,6 @@ export default function GamePage() {
     }
   }, [])
 
-  // ============ GAME START ============
   const startGame = useCallback((charKey: string, mode: GameMode) => {
     const charDef = CHARS[charKey]
     const map = buildMap()
@@ -433,9 +419,6 @@ export default function GamePage() {
         daggerAngle: 0,
         staffRayAnim: 0,
         staffRayTarget: null,
-        xp: 0,
-        maxXp: 100,
-        level: 1,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -493,44 +476,40 @@ export default function GamePage() {
     setScreen('charsel')
   }, [])
 
-  // ============ GET TERMINAL CONTEXT ============
   const getTermContext = useCallback((): TermContext => {
     if (!S.current || !S.current.p) return 'exploration'
     if (S.current.dlg.active) return 'dialog'
-    
+
     const p = S.current.p
     const naz = S.current.nazgul
-    
-    // Check combat (Nazgul within 12 tiles)
+
     if (naz && naz.hp > 0 && naz.state !== 'dying') {
       const dx = naz.x - p.x, dy = naz.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
       if (dist < 12 * T) return 'combat'
     }
-    
-    // Check interaction (NPC within 2 tiles)
+
     for (const v of S.current.villagers) {
       if (v.state === 'captured') continue
       const dx = v.x - p.x, dy = v.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
       if (dist < 2 * T) return 'interaction'
     }
-    
+
     const g = S.current.gandalfAlly
     if (g && !g.talked) {
       const dx = g.x - p.x, dy = g.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
       if (dist < 2.5 * T) return 'interaction'
     }
-    
+
     return 'exploration'
   }, [])
 
-  // ============ MOD SYSTEM ============
   const executeCommand = useCallback((cmd: string) => {
     if (!S.current) return
     const st = S.current
-    
+
     if (cmd === '/horda') {
       st.gameMode = 'horde'
       st.wave = 0
@@ -573,34 +552,36 @@ export default function GamePage() {
       const name = cmd.replace('/invocar ', '')
       log('s', `Invocando a ${name}... (próximamente)`)
     }
-    
+
     st.termInput = ''
     st.modMenuOpen = false
     forceUpdate(n => n + 1)
   }, [log, notify, createNazgul])
 
-  // ============ DIALOG SYSTEM ============
   const openGandalfDlg = useCallback(() => {
     if (!S.current || !S.current.gandalfAlly || !S.current.p) return
     const pName = CHARS[S.current.p.char].name
+    log('e', `GANDALF: El Nazgul acecha, ${pName}.`)
+    log('e', `GANDALF: Quedate cerca de mi.`)
     S.current.dlg = {
       active: true,
       speaker: 'GANDALF',
-      lines: [`El Nazgûl acecha, ${pName}. Quédate cerca de mí cuando te persiga. Lo mantendré a raya con mi báculo.`],
+      lines: [],
       lineIdx: 0,
       opts: [{ l: 'Gracias, Gandalf.', action: 'close' }],
     }
     S.current.gandalfAlly.talked = true
-    log('e', 'Gandalf te habla sobre el peligro que se acerca.')
     forceUpdate(n => n + 1)
   }, [log])
 
   const openVillagerDlg = useCallback((v: Villager) => {
     if (!S.current) return
-    const lines = [
-      `¡Hola, viajero! Soy ${v.name}.`,
-      v.items.length > 0 ? `Tengo algo que podría ayudarte...` : `Ten cuidado por ahí.`,
-    ]
+    log('e', `${v.name.toUpperCase()}: ¡Hola! Soy ${v.name}.`)
+    if (v.items.length > 0) {
+      log('e', `${v.name.toUpperCase()}: Tengo algo para vos...`)
+    } else {
+      log('e', `${v.name.toUpperCase()}: Ten cuidado por ahí.`)
+    }
     const opts: { l: string; action?: string }[] = []
     if (v.items.length > 0) {
       opts.push({ l: `Recibir ${ITEMS[v.items[0]]?.icon || '?'}`, action: 'give_item' })
@@ -611,12 +592,11 @@ export default function GamePage() {
     S.current.dlg = {
       active: true,
       speaker: v.name.toUpperCase(),
-      lines,
+      lines: [],
       lineIdx: 0,
       opts,
       target: v,
     }
-    log('e', `${v.name} te saluda.`)
     forceUpdate(n => n + 1)
   }, [log])
 
@@ -659,7 +639,6 @@ export default function GamePage() {
     forceUpdate(n => n + 1)
   }, [])
 
-  // ============ ITEM USE ============
   const useItem = useCallback((idx: number) => {
     if (!S.current || !S.current.p) return
     const p = S.current.p
@@ -676,7 +655,6 @@ export default function GamePage() {
       p.ringShimmer = 300
       log('e', '¡El Anillo te hace invisible!')
       notify('💍 INVISIBLE', '#c8a84b')
-      // Confuse all Nazgul
       if (S.current.nazgul && S.current.nazgul.hp > 0) {
         S.current.nazgul.state = 'confused'
       }
@@ -702,22 +680,18 @@ export default function GamePage() {
     }
   }, [useItem])
 
-  // ============ ATTACK ============
   const doAttack = useCallback(() => {
     if (!S.current || !S.current.p || S.current.dlg.active) return
     const p = S.current.p
     if (p.atkCd > 0) return
-    
+
     const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
 
-    // Visual power based on character
     if (p.char === 'aragorn') {
-      // Arc sweep animation - 120 degrees
       p.atkCd = 28
       p.sweepAnim = 20
       p.sweepAngle = dirAngles[p.dir]
-      
-      // Spawn sweep particles
+
       for (let i = 0; i < 10; i++) {
         const angle = p.sweepAngle - Math.PI / 3 + (Math.PI * 2 / 3) * (i / 10)
         S.current.parts.push({
@@ -731,12 +705,10 @@ export default function GamePage() {
         })
       }
     } else if (p.char === 'frodo') {
-      // Frodo: Dagger attack - 90 degrees, shorter range, faster cooldown
-      p.atkCd = 50 // 0.8s cooldown (faster than Aragorn)
+      p.atkCd = 50
       p.daggerAnim = 14
       p.daggerAngle = dirAngles[p.dir]
-      
-      // Spawn silver/cold particles
+
       for (let i = 0; i < 6; i++) {
         const angle = p.daggerAngle - Math.PI / 4 + (Math.PI / 2) * (i / 6)
         S.current.parts.push({
@@ -750,11 +722,9 @@ export default function GamePage() {
         })
       }
     } else if (p.char === 'gandalf') {
-      // Gandalf: Staff ray attack - 3.5 tiles range, 90 frame cooldown
-      p.atkCd = 90 // 1.5s cooldown
+      p.atkCd = 90
       p.staffRayAnim = 12
-      
-      // Find target in direction (within 3.5 tiles and ±30 degrees)
+
       const naz = S.current.nazgul
       if (naz && naz.hp > 0 && naz.state !== 'dying') {
         const dx = naz.x - p.x, dy = naz.y - p.y
@@ -762,14 +732,12 @@ export default function GamePage() {
         const angleToNaz = Math.atan2(dy, dx)
         const playerAngle = dirAngles[p.dir]
         const angleDiff = Math.abs(Math.atan2(Math.sin(angleToNaz - playerAngle), Math.cos(angleToNaz - playerAngle)))
-        
+
         if (dist < 3.5 * T && angleDiff < Math.PI / 6) {
-          // Hit!
           p.staffRayTarget = { x: naz.x, y: naz.y }
           naz.hp -= p.dmg
           naz.invT = 10
-          
-          // Knockback
+
           const knockDist = 2 * T
           if (dist > 0) {
             naz.x += (dx / dist) * knockDist
@@ -777,7 +745,7 @@ export default function GamePage() {
             naz.x = Math.max(T, Math.min((WW - 1) * T, naz.x))
             naz.y = Math.max(T, Math.min((WH - 1) * T, naz.y))
           }
-          
+
           S.current.fx.push({
             x: naz.x,
             y: naz.y - 20,
@@ -787,8 +755,7 @@ export default function GamePage() {
             life: 40,
           })
           log('d', `¡Destello del báculo! -${p.dmg} HP al Nazgûl. (${Math.max(0, naz.hp)}/${naz.maxhp})`)
-          
-          // End particles at ray endpoint
+
           for (let i = 0; i < 6; i++) {
             S.current.parts.push({
               x: naz.x,
@@ -800,7 +767,7 @@ export default function GamePage() {
               maxLife: 15,
             })
           }
-          
+
           if (naz.hp <= 0) {
             naz.state = 'dying'
             naz.deathFrame = 0
@@ -808,7 +775,6 @@ export default function GamePage() {
           return
         }
       }
-      // No target hit - just show ray in direction
       p.staffRayTarget = {
         x: p.x + Math.cos(dirAngles[p.dir]) * 3.5 * T,
         y: p.y + Math.sin(dirAngles[p.dir]) * 3.5 * T
@@ -816,21 +782,18 @@ export default function GamePage() {
       return
     }
 
-    // Check all Nazgul for Aragorn and Frodo melee attacks
     const allNaz = S.current.nazgul ? [S.current.nazgul, ...S.current.nazgulList.filter(n => n !== S.current!.nazgul)] : S.current.nazgulList
-    
+
     for (const naz of allNaz) {
       if (!naz || naz.hp <= 0 || naz.state === 'dying') continue
       const dx = naz.x - p.x, dy = naz.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
-      
-      // Aragorn has wider range, Frodo has shorter range (1.8T)
+
       let effectiveRange = p.range
       if (p.char === 'aragorn') effectiveRange = p.range * 1.2
       if (p.char === 'frodo') effectiveRange = 1.8
-      
+
       if (dist < effectiveRange * T) {
-        // For Frodo, use fixed 6 damage
         const dmg = p.char === 'frodo' ? 6 : p.dmg
         naz.hp -= dmg
         naz.invT = 10
@@ -853,7 +816,6 @@ export default function GamePage() {
     }
   }, [log])
 
-  // ============ INTERACTION ============
   const tryInteract = useCallback(() => {
     if (!S.current || !S.current.p) return
     const p = S.current.p
@@ -879,7 +841,6 @@ export default function GamePage() {
     }
   }, [openGandalfDlg, openVillagerDlg])
 
-  // ============ MOVEMENT HELPER ============
   const moveToward = useCallback((entity: { x: number; y: number; dir: Dir }, tx: number, ty: number, spd: number) => {
     const dx = tx - entity.x, dy = ty - entity.y
     const dist = Math.sqrt(dx * dx + dy * dy)
@@ -900,17 +861,14 @@ export default function GamePage() {
     return false
   }, [isSolid])
 
-  // ============ UPDATE ============
   const update = useCallback(() => {
     if (!S.current || !S.current.p || !S.current.gameActive || S.current.gamePaused) return
     const st = S.current
     const p = st.p!
     st.frameCount++
 
-    // Screen flash
     if (st.screenFlash > 0) st.screenFlash--
 
-    // Timers
     if (p.invT > 0) p.invT--
     if (p.atkCd > 0) p.atkCd--
     if (p.ringActive > 0) p.ringActive--
@@ -919,7 +877,6 @@ export default function GamePage() {
     if (p.daggerAnim > 0) p.daggerAnim--
     if (p.staffRayAnim > 0) p.staffRayAnim--
 
-    // Scheduled events
     if (st.frameCount === 180 && st.gameMode === 'horde') {
       log('i', 'Habla con Gandalf antes de que llegue el Nazgûl.')
     }
@@ -928,7 +885,6 @@ export default function GamePage() {
       st.invWarned = true
     }
 
-    // Spawn Nazgul (horde mode)
     if (st.gameMode === 'horde') {
       st.invTimer--
       if (st.invTimer <= 0 && !st.nazgul) {
@@ -938,8 +894,7 @@ export default function GamePage() {
         log('d', '¡OLEADA 1 - UN NAZGÛL HA ENTRADO EN HOBBITON!')
         notify('⚠ OLEADA 1', '#e24b4a')
       }
-      
-      // Wave delay for next Nazgul (N Nazgul per wave N)
+
       if (st.waveDelay > 0) {
         st.waveDelay--
         if (st.waveDelay === 60) {
@@ -947,21 +902,15 @@ export default function GamePage() {
         }
         if (st.waveDelay === 0 && st.wave < 10) {
           st.wave++
-          const count = st.wave  // Wave 2 = 2 nazgul, Wave 3 = 3, etc.
-          for (let i = 0; i < count; i++) {
-            const newNaz = createNazgul(st.wave)
-            newNaz.x = (WW - 3 - i * 3) * T  // Spread them out
-            newNaz.y = (36 + i * 2) * T
-            st.nazgulList.push(newNaz)
-            if (!st.nazgul) st.nazgul = newNaz
-          }
-          log('d', `¡OLEADA ${st.wave} - ${count} NAZGÛL!`)
-          notify(`⚠ OLEADA ${st.wave} (x${count})`, '#e24b4a')
+          const newNaz = createNazgul(st.wave)
+          st.nazgul = newNaz
+          st.nazgulList.push(newNaz)
+          log('d', `¡OLEADA ${st.wave} - NUEVO NAZGÛL!`)
+          notify(`⚠ OLEADA ${st.wave}`, '#e24b4a')
         }
       }
     }
 
-    // Player movement
     let dx = 0, dy = 0
     if (st.joy.active) {
       const mag = Math.sqrt(st.joy.dx * st.joy.dx + st.joy.dy * st.joy.dy)
@@ -992,7 +941,6 @@ export default function GamePage() {
       }
     }
 
-    // Pick up dropped items
     st.droppedItems = st.droppedItems.filter(di => {
       di.bouncePhase += 0.1
       const pdx = di.x - p.x, pdy = di.y - p.y
@@ -1006,7 +954,6 @@ export default function GamePage() {
       return true
     })
 
-    // Camera follow
     const canvas = canvasRef.current
     if (canvas) {
       const targetCamX = p.x - canvas.width / 2
@@ -1017,7 +964,6 @@ export default function GamePage() {
       st.cam.y = Math.max(0, Math.min(WH * T - canvas.height, st.cam.y))
     }
 
-    // Villager AI
     const naz = st.nazgul
     for (const v of st.villagers) {
       if (v.state === 'captured') continue
@@ -1065,7 +1011,6 @@ export default function GamePage() {
       }
     }
 
-    // Gandalf Ally AI
     const g = st.gandalfAlly
     if (g) {
       if (g.shieldActive > 0) g.shieldActive--
@@ -1128,32 +1073,23 @@ export default function GamePage() {
       }
     }
 
-    // Nazgul AI (handle all - including nazgulList)
-    const allNazgul = [
-      ...(st.nazgul ? [st.nazgul] : []),
-      ...st.nazgulList.filter(n => n !== st.nazgul)
-    ]
+    const allNazgul = st.nazgul ? [st.nazgul] : []
     for (const naz of allNazgul) {
       if (!naz) continue
-      
-      // Check if Nazgul should start dying (hp <= 0 but not yet dying)
+
       if (naz.hp <= 0 && naz.state !== 'dying') {
         naz.state = 'dying'
         naz.deathFrame = 0
         log('e', '¡El Nazgûl se desvanece en las sombras!')
       }
-      
-      // Death animation (process even when hp <= 0)
+
       if (naz.state === 'dying') {
         naz.deathFrame++
-        
-        // Frame 1-15: White flash
+
         if (naz.deathFrame === 1) {
           st.screenFlash = 6
         }
-        // Frame 15-50: Semi-transparent + explosion
         if (naz.deathFrame === 15) {
-          // Explosion particles
           for (let i = 0; i < 12; i++) {
             st.parts.push({
               x: naz.x,
@@ -1166,10 +1102,8 @@ export default function GamePage() {
             })
           }
         }
-        // Frame 80: Leave ground mark and drop items
         if (naz.deathFrame === 80) {
           st.groundMarks.push({ x: naz.x, y: naz.y, alpha: 0.6 })
-          // Drop items
           const drops = ['lembas', 'miruvor']
           const numDrops = 1 + Math.floor(Math.random() * 2)
           for (let i = 0; i < numDrops; i++) {
@@ -1181,48 +1115,16 @@ export default function GamePage() {
             })
           }
         }
-        // Frame 90: Nazgul is dead - award XP
         if (naz.deathFrame >= 90) {
-          // Award XP for kill
-          if (p) {
-            p.xp += 50 * naz.waveNum
-            st.fx.push({
-              x: naz.x,
-              y: naz.y - 30,
-              text: `+${50 * naz.waveNum} XP`,
-              color: '#c8a84b',
-              vy: -1.2,
-              life: 50,
-            })
-            // Check level up
-            while (p.level < 10 && p.xp >= XP_TABLE[p.level]) {
-              p.level++
-              p.maxhp += 1
-              p.hp = Math.min(p.hp + 1, p.maxhp)
-              if (p.level % 2 === 0) p.dmg += 1
-              if (p.level % 3 === 0) p.spd += 0.1
-              log('e', `¡Subiste al nivel ${p.level}! +1 HP max${p.level % 2 === 0 ? ', +1 DMG' : ''}${p.level % 3 === 0 ? ', +SPD' : ''}`)
-              notify(`NIVEL ${p.level}`, '#c8a84b')
-              st.screenFlash = 4
-            }
-          }
-          
-          // Remove this nazgul
           if (st.nazgul === naz) {
             st.nazgul = null
           }
           st.nazgulList = st.nazgulList.filter(n => n !== naz)
-          
-          // Check victory or spawn next wave (all Nazgul must be dead)
-          const aliveNazgul = st.nazgulList.filter(n => n.state !== 'dying' && n.hp > 0).length
-          if (!st.nazgul && aliveNazgul === 0) {
-            // Bonus XP for completing wave
-            if (p && st.gameMode === 'horde') {
-              p.xp += 80
-            }
+
+          if (!st.nazgul && st.nazgulList.length === 0) {
             if (st.gameMode === 'horde' && st.wave < 10) {
               st.waveDelay = 180
-              log('s', `Oleada ${st.wave} completada. +80 XP`)
+              log('s', `Oleada ${st.wave} completada. Prepárate para la siguiente...`)
             } else {
               const saved = st.villagers.filter(v => v.state !== 'captured').length
               log('e', `¡VICTORIA! Aldeanos salvados: ${saved}/8`)
@@ -1235,20 +1137,17 @@ export default function GamePage() {
         }
         continue
       }
-      
-      // Skip normal AI if dead
+
       if (naz.hp <= 0) continue
-      
+
       if (naz.atkT > 0) naz.atkT--
       if (naz.invT > 0) naz.invT--
       naz.frame++
 
-      // Confused state (ring active)
       if (naz.state === 'confused') {
         if (p.ringActive === 0) {
           naz.state = 'hunt'
         } else {
-          // Move erratically
           const randAngle = Math.random() * Math.PI * 2
           naz.x += Math.cos(randAngle) * naz.spd * 0.5
           naz.y += Math.sin(randAngle) * naz.spd * 0.5
@@ -1258,7 +1157,6 @@ export default function GamePage() {
         }
       }
 
-      // Check if should flee gandalf
       if (g) {
         const gndx = g.x - naz.x, gndy = g.y - naz.y
         const gnDist = Math.sqrt(gndx * gndx + gndy * gndy)
@@ -1269,7 +1167,6 @@ export default function GamePage() {
         }
       }
 
-      // Check if should chase player
       if (naz.state !== 'flee_gandalf' && p.ringActive === 0) {
         const pndx = p.x - naz.x, pndy = p.y - naz.y
         const pnDist = Math.sqrt(pndx * pndx + pndy * pndy)
@@ -1280,7 +1177,6 @@ export default function GamePage() {
         naz.state = 'confused'
       }
 
-      // Execute state
       if (naz.state === 'flee_gandalf' && g) {
         const fdx = naz.x - g.x, fdy = naz.y - g.y
         const fdist = Math.sqrt(fdx * fdx + fdy * fdy)
@@ -1314,12 +1210,10 @@ export default function GamePage() {
           }
 
           if (p.hp <= 0 && !st.heroMode) {
-            // Start death animation
             p.deathFrame = 1
           }
         }
       } else {
-        // Hunt villagers
         let closest: Villager | null = null
         let closestDist = Infinity
         for (const v of st.villagers) {
@@ -1350,7 +1244,6 @@ export default function GamePage() {
             if (closest.hp <= 0) {
               closest.state = 'captured'
               naz.poweredUp++
-              // v4 scaling
               naz.spd = Math.min(1.8, naz.spd + 0.25)
               naz.hp = Math.min(naz.maxhp + naz.poweredUp * 3, naz.hp + 3)
 
@@ -1381,14 +1274,11 @@ export default function GamePage() {
       }
     }
 
-    // Player death animation
     if (p.deathFrame > 0) {
       p.deathFrame++
       if (p.deathFrame <= 30) {
-        // Blink red, shrink
       }
       if (p.deathFrame === 30) {
-        // Explosion particles
         for (let i = 0; i < 12; i++) {
           st.parts.push({
             x: p.x,
@@ -1407,14 +1297,12 @@ export default function GamePage() {
       }
     }
 
-    // Update FX
     st.fx = st.fx.filter(f => {
       f.y += f.vy
       f.life--
       return f.life > 0
     })
 
-    // Update particles
     st.parts = st.parts.filter(pt => {
       pt.x += pt.vx
       pt.y += pt.vy
@@ -1422,19 +1310,16 @@ export default function GamePage() {
       return pt.life > 0
     })
 
-    // Ground marks fade
     st.groundMarks = st.groundMarks.filter(gm => {
       gm.alpha -= 0.001
       return gm.alpha > 0
     })
 
-    // Fade
     if (st.fade && st.fade.life > 0) {
       st.fade.life--
     }
   }, [isSolid, moveToward, createNazgul, log, notify])
 
-  // ============ DRAWING ============
   const drawSprite = useCallback((
     ctx: CanvasRenderingContext2D,
     char: string,
@@ -1733,14 +1618,12 @@ export default function GamePage() {
     const canvas = canvasRef.current!
     const sx = st.cam.x, sy = st.cam.y
 
-    // Screen flash
     if (st.screenFlash > 0) {
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       return
     }
 
-    // Death fade
     if (p.deathFrame > 80) {
       const fadeAlpha = Math.min(1, (p.deathFrame - 80) / 70)
       ctx.fillStyle = `rgba(0,0,0,${fadeAlpha})`
@@ -1762,7 +1645,6 @@ export default function GamePage() {
       }
     }
 
-    // Ground marks
     for (const gm of st.groundMarks) {
       ctx.fillStyle = `rgba(20,5,30,${gm.alpha})`
       ctx.beginPath()
@@ -1770,7 +1652,6 @@ export default function GamePage() {
       ctx.fill()
     }
 
-    // Dropped items
     for (const di of st.droppedItems) {
       const bounce = Math.sin(di.bouncePhase) * 3
       ctx.font = '16px sans-serif'
@@ -1778,7 +1659,6 @@ export default function GamePage() {
       ctx.fillText(ITEMS[di.item]?.icon || '?', di.x - sx, di.y - sy - 8 + bounce)
     }
 
-    // Particles
     for (const pt of st.parts) {
       ctx.fillStyle = pt.color
       ctx.globalAlpha = pt.life / pt.maxLife
@@ -1786,7 +1666,6 @@ export default function GamePage() {
     }
     ctx.globalAlpha = 1
 
-    // Captured marks
     for (const v of st.villagers) {
       if (v.state === 'captured') {
         ctx.strokeStyle = '#8a2020'
@@ -1805,7 +1684,6 @@ export default function GamePage() {
       }
     }
 
-    // Villagers
     for (const v of st.villagers) {
       if (v.state === 'captured') continue
       const vx = v.x - sx, vy = v.y - sy
@@ -1833,12 +1711,10 @@ export default function GamePage() {
       ctx.fillText(v.name, vx, vy + 20)
     }
 
-    // Gandalf ally
     const g = st.gandalfAlly
     if (g) {
       const gx = g.x - sx, gy = g.y - sy
 
-      // Shield effect
       if (g.shieldActive > 0) {
         const pulse = 0.5 + 0.5 * Math.sin(st.frameCount * 0.2)
         ctx.strokeStyle = `rgba(232,224,160,${pulse})`
@@ -1846,15 +1722,13 @@ export default function GamePage() {
         ctx.beginPath()
         ctx.arc(gx, gy, 40, 0, Math.PI * 2)
         ctx.stroke()
-        
-        // Area circle
+
         ctx.fillStyle = `rgba(232,224,160,${pulse * 0.15})`
         ctx.beginPath()
         ctx.arc(gx, gy, 60, 0, Math.PI * 2)
         ctx.fill()
       }
 
-      // Ray to Nazgul
       if (g.rayFrames > 0 && g.rayTarget) {
         const gradient = ctx.createLinearGradient(gx + 16, gy - 38, g.rayTarget.x - sx, g.rayTarget.y - sy)
         gradient.addColorStop(0, '#ffffd0')
@@ -1889,23 +1763,19 @@ export default function GamePage() {
       }
     }
 
-    // Nazgul
     const naz = st.nazgul
     if (naz && (naz.hp > 0 || naz.state === 'dying')) {
       const nx = naz.x - sx, ny = naz.y - sy
 
-    // Death animation (90 frames total per JSON spec)
-    if (naz.state === 'dying') {
-      const deathProgress = Math.min(1, naz.deathFrame / 90)
-      // Scale up then dissolve: frames 0-15 freeze, 15-50 scale up to 1.4x, 50-90 dissolve
-      const scale = naz.deathFrame < 15 ? 1 : 
-                   naz.deathFrame < 50 ? 1 + ((naz.deathFrame - 15) / 35) * 0.4 :
-                   1.4 - ((naz.deathFrame - 50) / 40) * 0.4
-      // Alpha: start at 1, go to 0.2 at frame 50, then 0 at frame 90
-      const alpha = naz.deathFrame < 15 ? 1 :
-                   naz.deathFrame < 50 ? 1 - ((naz.deathFrame - 15) / 35) * 0.8 :
-                   0.2 - ((naz.deathFrame - 50) / 40) * 0.2
-      ctx.globalAlpha = Math.max(0, alpha)
+      if (naz.state === 'dying') {
+        const deathProgress = Math.min(1, naz.deathFrame / 90)
+        const scale = naz.deathFrame < 15 ? 1 : 
+                     naz.deathFrame < 50 ? 1 + ((naz.deathFrame - 15) / 35) * 0.4 :
+                     1.4 - ((naz.deathFrame - 50) / 40) * 0.4
+        const alpha = naz.deathFrame < 15 ? 1 :
+                     naz.deathFrame < 50 ? 1 - ((naz.deathFrame - 15) / 35) * 0.8 :
+                     0.2 - ((naz.deathFrame - 50) / 40) * 0.2
+        ctx.globalAlpha = Math.max(0, alpha)
         ctx.save()
         ctx.translate(nx, ny)
         ctx.scale(scale, scale)
@@ -1938,10 +1808,8 @@ export default function GamePage() {
       }
     }
 
-    // Player
     const px = p.x - sx, py = p.y - sy
 
-    // Aragorn sweep arc (120 degrees)
     if (p.char === 'aragorn' && p.sweepAnim > 0) {
       const progress = p.sweepAnim / 20
       ctx.strokeStyle = `rgba(200,168,75,${progress * 0.6})`
@@ -1950,8 +1818,7 @@ export default function GamePage() {
       ctx.arc(px, py, T * 2.4, p.sweepAngle - Math.PI / 3, p.sweepAngle + Math.PI / 3)
       ctx.stroke()
     }
-    
-    // Frodo dagger sweep (90 degrees, shorter range, silver/cold color)
+
     if (p.char === 'frodo' && p.daggerAnim > 0) {
       const progress = p.daggerAnim / 14
       ctx.strokeStyle = `rgba(180,210,255,${progress * 0.7})`
@@ -1960,8 +1827,7 @@ export default function GamePage() {
       ctx.arc(px, py, T * 1.8, p.daggerAngle - Math.PI / 4, p.daggerAngle + Math.PI / 4)
       ctx.stroke()
     }
-    
-    // Gandalf staff ray (white-golden beam)
+
     if (p.char === 'gandalf' && p.staffRayAnim > 0 && p.staffRayTarget) {
       const progress = p.staffRayAnim / 12
       const gradient = ctx.createLinearGradient(px + 16, py - 20, p.staffRayTarget.x - sx, p.staffRayTarget.y - sy)
@@ -1971,13 +1837,12 @@ export default function GamePage() {
       ctx.lineWidth = 4
       ctx.globalAlpha = progress
       ctx.beginPath()
-      ctx.moveTo(px + 14, py - 36) // Staff top position
+      ctx.moveTo(px + 14, py - 36)
       ctx.lineTo(p.staffRayTarget.x - sx, p.staffRayTarget.y - sy)
       ctx.stroke()
       ctx.globalAlpha = 1
     }
-    
-    // Ring shimmer for Frodo
+
     if (p.char === 'frodo' && p.ringShimmer > 0) {
       const shimmerAlpha = (p.ringShimmer / 300) * (0.3 + 0.2 * Math.sin(st.frameCount * 0.3))
       ctx.strokeStyle = `rgba(200,168,75,${shimmerAlpha})`
@@ -1987,7 +1852,6 @@ export default function GamePage() {
         ctx.arc(px, py, 15 + i * 5 + Math.sin(st.frameCount * 0.1 + i) * 2, 0, Math.PI * 2)
         ctx.stroke()
       }
-      // Golden particles
       if (st.frameCount % 5 === 0) {
         st.parts.push({
           x: p.x + (Math.random() - 0.5) * 30,
@@ -2001,7 +1865,6 @@ export default function GamePage() {
       }
     }
 
-    // Invisibility effect
     if (p.ringActive > 0) {
       ctx.globalAlpha = 0.4
       ctx.strokeStyle = '#c8a84b'
@@ -2013,7 +1876,6 @@ export default function GamePage() {
       ctx.setLineDash([])
     }
 
-    // Death animation shrink
     if (p.deathFrame > 0 && p.deathFrame <= 30) {
       const shrink = 1 - (p.deathFrame / 30) * 0.7
       ctx.save()
@@ -2026,7 +1888,6 @@ export default function GamePage() {
       drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2)
       ctx.restore()
     } else if (p.deathFrame === 0) {
-      // Flash when hit
       if (p.invT > 0 && p.invT % 6 < 3) {
         ctx.globalAlpha = 0.5
       }
@@ -2034,7 +1895,6 @@ export default function GamePage() {
     }
     ctx.globalAlpha = 1
 
-    // Player name
     if (p.deathFrame === 0) {
       ctx.font = 'bold 9px monospace'
       ctx.fillStyle = 'rgba(0,0,0,0.55)'
@@ -2046,7 +1906,6 @@ export default function GamePage() {
       ctx.fillText(pName, px, py + 22)
     }
 
-    // Floating text FX
     for (const f of st.fx) {
       ctx.font = 'bold 12px monospace'
       ctx.fillStyle = f.color
@@ -2056,7 +1915,6 @@ export default function GamePage() {
     }
     ctx.globalAlpha = 1
 
-    // Fade notification
     if (st.fade && st.fade.life > 0) {
       ctx.font = 'bold 14px monospace'
       ctx.fillStyle = st.fade.color
@@ -2069,7 +1927,6 @@ export default function GamePage() {
     drawMinimap()
   }, [drawTile, drawSprite, drawMinimap])
 
-  // ============ GAME LOOP ============
   const loop = useCallback(() => {
     if (screen === 'game' && S.current?.gameActive) {
       update()
@@ -2078,14 +1935,12 @@ export default function GamePage() {
     animRef.current = requestAnimationFrame(loop)
   }, [screen, update, render])
 
-  // ============ INPUT SETUP ============
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!S.current) return
-      
-      // Don't capture if typing in input
+
       if (document.activeElement?.tagName === 'INPUT') return
-      
+
       S.current.keys.add(e.key)
 
       if (e.key === ' ' || e.key === 'Space') {
@@ -2136,24 +1991,20 @@ export default function GamePage() {
     }
   }, [advanceDlg, doAttack, closeDlg, tryInteract, useItem])
 
-  // ============ RESIZE ============
   useEffect(() => {
     const handleResize = () => {
       if (canvasRef.current) {
-        // Get the parent container (game area) dimensions
         const parent = canvasRef.current.parentElement
         if (parent) {
           canvasRef.current.width = parent.clientWidth
           canvasRef.current.height = parent.clientHeight
         }
       }
-      // Check for compact mode (height < 700px)
       setIsCompact(window.innerHeight < 700)
     }
 
     handleResize()
     window.addEventListener('resize', handleResize)
-    // Also handle orientation changes on mobile
     window.addEventListener('orientationchange', () => setTimeout(handleResize, 100))
     return () => {
       window.removeEventListener('resize', handleResize)
@@ -2161,24 +2012,22 @@ export default function GamePage() {
     }
   }, [])
 
-  // ============ GAME LOOP START ============
   useEffect(() => {
     animRef.current = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(animRef.current)
   }, [loop])
 
-  // ============ JOYSTICK HANDLERS (Pointer Events for iOS multitouch) ============
   const joystickRef = useRef<HTMLDivElement>(null)
   const [thumbPos, setThumbPos] = useState({ x: 0, y: 0 })
   const joystickPointerId = useRef<number | null>(null)
 
   const handleJoystickPointerDown = (e: React.PointerEvent) => {
-    if (joystickPointerId.current !== null) return // Already tracking a pointer
+    if (joystickPointerId.current !== null) return
     e.preventDefault()
     e.stopPropagation()
     joystickPointerId.current = e.pointerId
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    
+
     if (!S.current || !joystickRef.current) return
     const rect = joystickRef.current.getBoundingClientRect()
     const centerX = rect.width / 2
@@ -2219,7 +2068,6 @@ export default function GamePage() {
     S.current.joy = { active: false, dx: 0, dy: 0 }
   }
 
-  // ============ TERMINAL INPUT HANDLING ============
   const handleTermInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!S.current) return
     const val = e.target.value
@@ -2240,14 +2088,12 @@ export default function GamePage() {
     }
   }
 
-  // ============ RENDER ============
   const savedCount = S.current ? S.current.villagers.filter(v => v.state !== 'captured').length : 8
   const termContext = S.current ? getTermContext() : 'exploration'
-  const filteredMods = S.current?.termInput 
+  const filteredMods = S.current?.termInput
     ? MOD_COMMANDS.filter(m => m.cmd.startsWith(S.current!.termInput))
     : MOD_COMMANDS
 
-  // Inventory panel state
   const [invPanelOpen, setInvPanelOpen] = useState(false)
 
   return (
@@ -2256,95 +2102,81 @@ export default function GamePage() {
       className="relative w-full bg-[#0a0804] flex flex-col overflow-hidden select-none"
       style={{ touchAction: 'manipulation', height: '100dvh' }}
     >
-      {/* ============ TOP HUD ZONE ============ */}
       {screen === 'game' && S.current?.p && (
         <div className="flex-none px-2 pt-1 pb-0 z-10">
-          {/* Top Row: Minimap + Status */}
           <div className="flex items-start justify-between">
-            {/* Minimap */}
             <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden bg-[rgba(0,0,0,0.5)]">
               <canvas ref={minimapRef} width={64} height={64} className="block" />
             </div>
-            
-            {/* Status Text */}
+
             <div className="text-right">
-              <div className="text-[#c8a84b] text-xs tracking-[1px] font-bold">
+              <div className="text-[#c8a84b] text-sm tracking-[1px] font-bold">
                 {S.current.gameMode === 'horde' && S.current.wave > 0 
                   ? `OLEADA ${S.current.wave}/10`
-                  : `${CHARS[S.current.p.char].name} Nv.${S.current.p.level}`
+                  : CHARS[S.current.p.char].name
                 }
               </div>
               <div className="flex gap-0.5 justify-end mt-0.5">
                 {Array.from({ length: S.current.p.maxhp }).map((_, i) => (
                   <div
                     key={i}
-                    className={`w-1.5 h-1.5 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
+                    className={`w-2 h-2 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
                   />
                 ))}
               </div>
-              {/* XP Bar */}
-              <div className="flex items-center gap-1 mt-0.5 justify-end">
-                <div className="text-[#5a6a3a] text-[8px]">XP</div>
-                <div className="h-1 rounded-full bg-[#2a1a10] overflow-hidden" style={{ width: '60px' }}>
-                  <div
-                    className="h-full rounded-full bg-[#c8a84b] transition-all duration-300"
-                    style={{ 
-                      width: `${Math.min(100, ((S.current.p.xp - (XP_TABLE[S.current.p.level - 2] || 0)) / (XP_TABLE[S.current.p.level - 1] - (XP_TABLE[S.current.p.level - 2] || 0))) * 100)}%` 
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="text-[#8aaa6e] text-[10px] mt-0.5 font-medium">
+              <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
               </div>
               {S.current.heroMode && (
-                <div className="text-[#c8a84b] text-[8px] animate-pulse">INMORTAL</div>
+                <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
               )}
               {S.current.p.ringActive > 0 && (
-                <div className="text-[#c8a84b] text-[8px] animate-pulse">INVISIBLE</div>
+                <div className="text-[#c8a84b] text-[10px] animate-pulse">INVISIBLE</div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ============ TERMINAL ZONE (compact 2 lines) ============ */}
       {screen === 'game' && S.current && (
         <div 
           className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
-          style={{ 
-            background: 'rgba(0,0,0,0.85)', 
-            height: 'auto',
-            minHeight: 0,
-            maxHeight: 130,
-          }}
+          style={{ background: '#0a0a0a', height: 'auto' }}
         >
-          {/* Terminal Log (2 lines max, scrollable) */}
-          <div 
+          <div
             ref={logRef}
-            className="overflow-y-auto px-2 py-1 font-mono leading-snug"
-            style={{ maxHeight: '44px', fontSize: '11px' }}
+            className="px-2 py-1"
+            style={{
+              height: '66px',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              scrollbarWidth: 'none',
+            }}
           >
             {S.current.logs.map((l, i) => (
               <div
                 key={i}
-                className={
-                  l.type === 'i' ? 'text-[#8aaa6e]' :
-                  l.type === 'e' ? 'text-[#c8a84b]' :
-                  l.type === 'd' ? 'text-[#e24b4a]' :
-                  l.type === 's' ? 'text-[#5a6a3a]' :
-                  'text-[#8aaa6e]'
-                }
+                style={{
+                  fontSize: '11px',
+                  lineHeight: '18px',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'normal',
+                  fontFamily: 'monospace',
+                  marginBottom: '2px',
+                  color: l.type === 'i' ? '#8aaa6e' :
+                         l.type === 'e' ? '#c8a84b' :
+                         l.type === 'd' ? '#e24b4a' :
+                         '#5a6a3a'
+                }}
               >
-                <span className="text-[#5a6a3a] mr-2">[{l.time}]</span>
+                <span style={{ color: '#3a4a2a', marginRight: '4px' }}>[{l.time}]</span>
                 {l.msg}
               </div>
             ))}
           </div>
-          
-          {/* Terminal Input */}
-          <div className="flex-none flex items-center h-8 px-2 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.3)]">
-            <span className="text-[#5a6a3a] mr-2 text-xs">{'>'}</span>
+
+          <div className="flex-none flex items-center h-8 px-2 border-t border-[#2a3a1a]" style={{ background: '#0a0a0a' }}>
+            <span className="text-[#5a6a3a] mr-2 text-sm">{'>'}</span>
             <input
               ref={inputRef}
               type="text"
@@ -2353,103 +2185,75 @@ export default function GamePage() {
               onKeyDown={handleTermKeyDown}
               onFocus={() => { if (S.current) S.current.gamePaused = true }}
               onBlur={() => { if (S.current) S.current.gamePaused = false }}
-              placeholder="/mods..."
-              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a] text-xs"
+              placeholder="/mods o escribe aquí..."
+              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a]"
               style={{ fontSize: '16px' }}
             />
           </div>
-          
-          {/* Terminal Options (contextual buttons) */}
-          {termContext === 'interaction' && (
-            <div className="flex-none flex gap-1.5 p-1.5 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
+
+          {S.current.dlg.active ? (
+            <div className="flex-none flex gap-2 p-1.5 border-t border-[#2a3a1a]" style={{ background: 'rgba(0,0,0,0.5)' }}>
+              {S.current.dlg.opts.map((opt, i) => (
+                <button
+                  key={i}
+                  onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); selectDlgOpt(opt) }}
+                  onClick={() => selectDlgOpt(opt)}
+                  className="flex-1 py-1.5 rounded-lg text-xs font-medium active:scale-95 transition-all"
+                  style={{ background: 'rgba(200,168,75,0.12)', color: '#c8a84b', border: '1px solid #4a3a20' }}
+                >
+                  {opt.l}
+                </button>
+              ))}
+            </div>
+          ) : termContext === 'interaction' ? (
+            <div className="flex-none flex gap-2 p-1.5 border-t border-[#2a3a1a]" style={{ background: 'rgba(0,0,0,0.3)' }}>
               <button
-                onTouchStart={(e) => { e.preventDefault(); tryInteract() }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); tryInteract() }}
                 onClick={(e) => { e.preventDefault(); tryInteract() }}
-                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(90,138,58,0.2)] text-[#8aaa6e] border border-[#3a4a2a] active:bg-[rgba(90,138,58,0.4)]"
+                className="flex-1 py-1.5 rounded-lg text-xs font-medium active:scale-95 transition-all"
+                style={{ background: 'rgba(90,138,58,0.2)', color: '#8aaa6e', border: '1px solid #3a4a2a' }}
               >
                 Hablar
               </button>
               <button
-                onTouchStart={(e) => e.preventDefault()}
-                onClick={(e) => { e.preventDefault(); }}
-                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
-              >
-                Ayuda
-              </button>
-              <button
-                onTouchStart={(e) => { e.preventDefault(); closeDlg() }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); closeDlg() }}
                 onClick={(e) => { e.preventDefault(); closeDlg() }}
-                className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(60,50,40,0.3)] text-[#6a5a4a] border border-[#3a3a2a] active:bg-[rgba(60,50,40,0.5)]"
+                className="flex-1 py-1.5 rounded-lg text-xs font-medium active:scale-95 transition-all"
+                style={{ background: 'rgba(60,50,40,0.3)', color: '#6a5a4a', border: '1px solid #3a3a2a' }}
               >
                 Ignorar
               </button>
             </div>
-          )}
-          
-          {/* Dialog options in terminal */}
-          {S.current.dlg.active && (
-            <div className="flex-none flex flex-col gap-1 p-1.5 border-t border-[#2a3a1a] bg-[rgba(0,0,0,0.2)]">
-              <div className="text-[#c8a84b] text-[10px] font-bold">{S.current.dlg.speaker}:</div>
-              <div className="text-[#8aaa6e] text-xs mb-1">{S.current.dlg.lines[S.current.dlg.lineIdx]}</div>
-              {S.current.dlg.lineIdx === S.current.dlg.lines.length - 1 ? (
-                <div className="flex gap-1.5">
-                  {S.current.dlg.opts.map((opt, i) => (
-                    <button
-                      key={i}
-                      onTouchStart={() => selectDlgOpt(opt)}
-                      onClick={() => selectDlgOpt(opt)}
-                      className="flex-1 py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
-                    >
-                      {opt.l}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <button
-                  onTouchStart={advanceDlg}
-                  onClick={advanceDlg}
-                  className="py-1.5 rounded-lg text-xs font-medium bg-[rgba(200,168,75,0.15)] text-[#c8a84b] border border-[#4a3a20] active:bg-[rgba(200,168,75,0.3)]"
-                >
-                  Continuar...
-                </button>
-              )}
-            </div>
-          )}
+          ) : null}
         </div>
       )}
 
-      {/* ============ GAME AREA (Canvas) ============ */}
-      <div 
-        className="flex-1 relative flex items-center justify-center"
-        onClick={() => setInvPanelOpen(false)}
-      >
+      <div className="flex-1 relative flex items-center justify-center">
         <canvas
           ref={canvasRef}
           className="block w-full h-full"
           style={{ imageRendering: 'pixelated' }}
         />
-        
-        {/* Minimap for non-game screens placeholder */}
+
         {screen !== 'game' && (
           <canvas ref={minimapRef} width={64} height={64} className="hidden" />
         )}
       </div>
 
-      {/* ============ BOTTOM HUD ZONE ============ */}
       {screen === 'game' && S.current && (
-        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative">
-          {/* Inline Inventory Panel - expands upward */}
-          {invPanelOpen && S.current.p && (
+        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
+
+          {invPanelOpen && S.current?.p && (
             <div
-              className="absolute bottom-full right-0 mb-1 w-[200px] rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
+              className="absolute bottom-full right-3 mb-1 w-[200px] rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
               style={{ background: 'rgba(10,12,8,0.97)' }}
             >
               <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(200,168,75,0.15)]">
                 <span className="text-[#c8a84b] text-xs font-bold tracking-wider">INVENTARIO</span>
-                <button onClick={() => setInvPanelOpen(false)} className="text-[#5a6a3a] text-xs">X</button>
+                <button onTouchStart={(e) => { e.preventDefault(); setInvPanelOpen(false) }} onClick={() => setInvPanelOpen(false)} className="text-[#5a6a3a] text-xs px-1">✕</button>
               </div>
               {S.current.p.inv.length === 0 ? (
-                <div className="text-[#5a6a3a] text-xs text-center py-3">Vacio</div>
+                <div className="text-[#5a6a3a] text-xs text-center py-3">Vacío</div>
               ) : (
                 <div className="flex flex-wrap gap-2 p-2">
                   {S.current.p.inv.map((item, i) => (
@@ -2467,11 +2271,11 @@ export default function GamePage() {
               )}
             </div>
           )}
-          {/* Joystick (left) - 90px - Pointer Events for iOS multitouch */}
+
           <div
             ref={joystickRef}
             className="rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0"
-            style={{ width: 90, height: 90, opacity: 0.85, touchAction: 'none' }}
+            style={{ width: 90, height: 90, touchAction: 'none', opacity: 0.85 }}
             onPointerDown={handleJoystickPointerDown}
             onPointerMove={handleJoystickPointerMove}
             onPointerUp={handleJoystickPointerUp}
@@ -2479,59 +2283,35 @@ export default function GamePage() {
           >
             <div
               className="w-10 h-10 rounded-full bg-[rgba(200,168,75,0.25)] border border-[rgba(200,168,75,0.5)]"
-              style={{
-                transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`,
-              }}
+              style={{ transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`, pointerEvents: 'none' }}
             />
           </div>
 
-          {/* Combat Controls (right) - Two rows */}
-          <div className="flex flex-col gap-2.5 items-end">
-            {/* Primary Actions Row - Large buttons: Sword, Shield, Ring */}
-            <div className={`flex ${isCompact ? 'gap-2' : 'gap-3'} items-center`}>
-              {/* Attack (Sword) Button - touchAction:none for instant response */}
+          <div className="flex flex-col gap-2 items-end">
+            <div className="flex gap-2 items-center">
               <button
-                onTouchStart={(e) => { e.preventDefault(); doAttack() }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); doAttack() }}
                 onClick={(e) => { e.preventDefault(); doAttack() }}
-                className="w-16 h-16 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all shadow-lg"
-                style={{ touchAction: 'none' }}
+                className="w-16 h-16 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all"
                 title="Atacar"
               >
                 {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
               </button>
 
-              {/* Defend (Shield) Button - touchAction:none for instant response */}
               <button
-                onTouchStart={(e) => { 
-                  e.preventDefault()
-                  if (S.current?.p) {
-                    S.current.p.invT = Math.max(S.current.p.invT, 60)
-                    log('s', 'Te pones en guardia.')
-                    notify('DEFENSA', '#5a8a3a')
-                  }
-                }}
-                onClick={(e) => { 
-                  e.preventDefault()
-                  if (S.current?.p) {
-                    S.current.p.invT = Math.max(S.current.p.invT, 60)
-                    log('s', 'Te pones en guardia.')
-                    notify('DEFENSA', '#5a8a3a')
-                  }
-                }}
-                className="w-16 h-16 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all shadow-lg"
-                style={{ touchAction: 'none' }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
+                onClick={(e) => { e.preventDefault(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
+                className="w-16 h-16 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all"
                 title="Defender"
               >
                 🛡️
               </button>
 
-              {/* Ring Button (highlighted for Frodo) - touchAction:none */}
               {S.current.p?.inv.includes('anillo') && (
                 <button
-                  onTouchStart={(e) => { e.preventDefault(); useRing() }}
+                  onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); useRing() }}
                   onClick={(e) => { e.preventDefault(); useRing() }}
-                  className="w-16 h-16 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all shadow-lg animate-pulse"
-                  style={{ boxShadow: '0 0 12px rgba(200,168,75,0.4)', touchAction: 'none' }}
+                  className="w-16 h-16 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all animate-pulse"
                   title="Usar Anillo"
                 >
                   💍
@@ -2539,81 +2319,46 @@ export default function GamePage() {
               )}
             </div>
 
-            {/* Action Bar Row - 4 smaller buttons */}
-            <div className={`flex ${isCompact ? 'gap-2' : 'gap-2.5'} items-center`}>
-              {/* Potion Button - touchAction:none */}
+            <div className="flex gap-2 items-center">
               <button
-                onTouchStart={(e) => { 
-                  e.preventDefault()
-                  const miruvorIdx = S.current?.p?.inv.indexOf('miruvor') ?? -1
-                  if (miruvorIdx >= 0) useItem(miruvorIdx)
-                }}
-                onClick={(e) => { 
-                  e.preventDefault()
-                  const miruvorIdx = S.current?.p?.inv.indexOf('miruvor') ?? -1
-                  if (miruvorIdx >= 0) useItem(miruvorIdx)
-                }}
-                className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#1a3020] border-2 border-[#2a4a30] flex items-center justify-center text-lg active:bg-[#2a4030] active:scale-95 transition-all`}
-                style={{ touchAction: 'none' }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const idx = S.current?.p?.inv.indexOf('miruvor') ?? -1; if (idx >= 0) useItem(idx) }}
+                onClick={(e) => { e.preventDefault(); const idx = S.current?.p?.inv.indexOf('miruvor') ?? -1; if (idx >= 0) useItem(idx) }}
+                className="w-12 h-12 rounded-xl bg-[#1a3020] border-2 border-[#2a4a30] flex items-center justify-center text-lg active:bg-[#2a4030] active:scale-95 transition-all"
                 title="Poción"
-              >
-                🧴
-              </button>
+              >🧴</button>
 
-              {/* Food Button - touchAction:none */}
               <button
-                onTouchStart={(e) => { 
-                  e.preventDefault()
-                  const lembasIdx = S.current?.p?.inv.indexOf('lembas') ?? -1
-                  if (lembasIdx >= 0) useItem(lembasIdx)
-                }}
-                onClick={(e) => { 
-                  e.preventDefault()
-                  const lembasIdx = S.current?.p?.inv.indexOf('lembas') ?? -1
-                  if (lembasIdx >= 0) useItem(lembasIdx)
-                }}
-                className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#2a2010] border-2 border-[#4a3a20] flex items-center justify-center text-lg active:bg-[#3a3020] active:scale-95 transition-all`}
-                style={{ touchAction: 'none' }}
-                title="Comer"
-              >
-                🍞
-              </button>
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const idx = S.current?.p?.inv.indexOf('lembas') ?? -1; if (idx >= 0) useItem(idx) }}
+                onClick={(e) => { e.preventDefault(); const idx = S.current?.p?.inv.indexOf('lembas') ?? -1; if (idx >= 0) useItem(idx) }}
+                className="w-12 h-12 rounded-xl bg-[#2a2010] border-2 border-[#4a3a20] flex items-center justify-center text-lg active:bg-[#3a3020] active:scale-95 transition-all"
+                title="Lembas"
+              >🍞</button>
 
-              {/* Chat/Talk Button - touchAction:none */}
               <button
-                onTouchStart={(e) => { e.preventDefault(); tryInteract() }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); tryInteract() }}
                 onClick={(e) => { e.preventDefault(); tryInteract() }}
-                className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center text-lg active:bg-[#1a2a3a] active:scale-95 transition-all`}
-                style={{ touchAction: 'none' }}
+                className="w-12 h-12 rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center text-lg active:bg-[#1a2a3a] active:scale-95 transition-all"
                 title="Hablar"
-              >
-                💬
-              </button>
+              >💬</button>
 
-              {/* Plus/Custom Button (opens inventory or mods) - touchAction:none */}
               <button
-                onTouchStart={(e) => { 
-                  e.preventDefault()
-                  setInvPanelOpen(!invPanelOpen)
-                }}
-                onClick={(e) => { 
-                  e.preventDefault()
-                  setInvPanelOpen(!invPanelOpen)
-                }}
-                className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl bg-[#1a1a2a] border-2 border-[#2a2a4a] flex items-center justify-center text-lg active:bg-[#2a2a3a] active:scale-95 transition-all`}
-                style={{ touchAction: 'none' }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); setInvPanelOpen(v => !v) }}
+                onClick={(e) => { e.preventDefault(); setInvPanelOpen(v => !v) }}
+                className="w-12 h-12 rounded-xl bg-[#1a1a2a] border-2 border-[#2a2a4a] flex items-center justify-center text-lg active:bg-[#2a2a3a] active:scale-95 transition-all"
                 title="Inventario"
               >
-                +
+                🎒
+                {(S.current.p?.inv.length ?? 0) > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#c8a84b] text-[#1a1408] text-[9px] font-bold flex items-center justify-center">
+                    {S.current.p?.inv.length}
+                  </span>
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
 
-
-
-      {/* ============ MOD MENU OVERLAY ============ */}
       {screen === 'game' && S.current?.modMenuOpen && (
         <div 
           className="absolute inset-0 z-40 flex items-center justify-center bg-[rgba(0,0,0,0.7)]"
@@ -2640,7 +2385,6 @@ export default function GamePage() {
                 </button>
               ))}
             </div>
-            {/* Input for custom commands */}
             <div className="flex items-center mt-3 h-10 px-3 rounded-lg border border-[#2a3a1a] bg-[rgba(0,0,0,0.3)]">
               <span className="text-[#5a6a3a] mr-2">›</span>
               <input
@@ -2660,14 +2404,13 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* Character Selection */}
       {screen === 'charsel' && (
         <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] flex flex-col items-center justify-center p-4">
           <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
             TIERRA MEDIA
           </h1>
           <p className="text-[#6a5a3a] text-sm mb-4">Elige tu héroe</p>
-          
+
           <div className="flex gap-4 flex-wrap justify-center mb-4">
             {Object.entries(CHARS).map(([key, char]) => (
               <button
@@ -2691,7 +2434,6 @@ export default function GamePage() {
             ))}
           </div>
 
-          {/* Game Mode Selection */}
           <div className="flex gap-3 mb-4">
             <button
               onClick={() => setSelectedMode('exploration')}
@@ -2730,7 +2472,6 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* Dead Screen */}
       {screen === 'dead' && (
         <div className="absolute inset-0 bg-[rgba(60,5,5,0.93)] flex flex-col items-center justify-center">
           <h1 className="text-[#c82020] text-3xl font-bold mb-4">HAS CAIDO</h1>
@@ -2746,7 +2487,6 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* Game Over Screen */}
       {screen === 'gameover' && (
         <div className="absolute inset-0 bg-[rgba(5,2,2,0.97)] flex flex-col items-center justify-center p-4">
           <div className="text-[#4a1010] text-xs tracking-widest mb-2">
@@ -2767,7 +2507,6 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* Win Screen */}
       {screen === 'win' && (
         <div className="absolute inset-0 bg-[rgba(4,30,20,0.96)] flex flex-col items-center justify-center p-4">
           <h1 className="text-[#c8a84b] text-3xl font-bold mb-4">VICTORIA</h1>
@@ -2794,7 +2533,6 @@ export default function GamePage() {
   )
 }
 
-// Character preview component for selection screen
 function CharPreview({ charKey }: { charKey: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
