@@ -2241,7 +2241,7 @@ export default function GamePage() {
       </div>
 
       {screen === 'game' && S.current && (
-        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative">
+        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
 
           {invPanelOpen && S.current?.p && (
             <div
