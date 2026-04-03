@@ -2117,18 +2117,27 @@ const allNazForMap = [
   return (
     <div
       ref={rootRef}
-      className="relative w-full bg-[#0a0804] flex flex-col overflow-hidden select-none"
+      className="relative w-full bg-[#0a0804] overflow-hidden select-none"
       style={{ touchAction: 'manipulation', height: '100dvh' }}
     >
+      {/* Canvas - Full screen background */}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full"
+        style={{ imageRendering: 'pixelated' }}
+      />
+      <canvas ref={minimapRef} width={64} height={64} className="hidden" />
+
+      {/* TOP HUD - Overlay */}
       {screen === 'game' && S.current?.p && (
-        <div className="flex-none px-2 pt-1 pb-0 z-10">
+        <div className="absolute top-0 left-0 right-0 px-2 pt-1 z-10" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 70%, transparent 100%)' }}>
           <div className="flex items-start justify-between">
-            <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden bg-[rgba(0,0,0,0.5)]">
-              <canvas ref={minimapRef} width={64} height={64} className="block" />
+            <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden" style={{ background: 'rgba(0,0,0,0.6)' }}>
+              <canvas ref={minimapRef} width={56} height={56} className="block" />
             </div>
 
             <div className="text-right">
-              <div className="text-[#c8a84b] text-sm tracking-[1px] font-bold">
+              <div className="text-[#c8a84b] text-xs tracking-[1px] font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
                 {S.current.gameMode === 'horde' && S.current.wave > 0 
                   ? `OLEADA ${S.current.wave}/10`
                   : CHARS[S.current.p.char].name
@@ -2138,34 +2147,36 @@ const allNazForMap = [
                 {Array.from({ length: S.current.p.maxhp }).map((_, i) => (
                   <div
                     key={i}
-                    className={`w-2 h-2 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
+                    className={`w-1.5 h-1.5 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
+                    style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
                   />
                 ))}
               </div>
-              <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
+              <div className="text-[#8aaa6e] text-[10px] mt-0.5 font-medium" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
                 Aldeanos: {savedCount}/8
               </div>
               {S.current.heroMode && (
-                <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
+                <div className="text-[#c8a84b] text-[9px] animate-pulse">INMORTAL</div>
               )}
               {S.current.p.ringActive > 0 && (
-                <div className="text-[#c8a84b] text-[10px] animate-pulse">INVISIBLE</div>
+                <div className="text-[#c8a84b] text-[9px] animate-pulse">INVISIBLE</div>
               )}
             </div>
           </div>
         </div>
       )}
 
+      {/* TERMINAL - Below top HUD, semi-transparent */}
       {screen === 'game' && S.current && (
         <div 
-          className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
-          style={{ background: '#0a0a0a', height: 'auto' }}
+          className="absolute left-2 right-2 rounded-lg border border-[rgba(42,58,26,0.5)] overflow-hidden flex flex-col z-10"
+          style={{ background: 'rgba(0,0,0,0.65)', top: '68px' }}
         >
           <div
             ref={logRef}
-            className="px-2 py-1"
+            className="px-2 py-0.5"
             style={{
-              height: '66px',
+              height: '50px',
               overflowY: 'auto',
               overflowX: 'hidden',
               scrollbarWidth: 'none',
@@ -2193,8 +2204,8 @@ const allNazForMap = [
             ))}
           </div>
 
-          <div className="flex-none flex items-center h-8 px-2 border-t border-[#2a3a1a]" style={{ background: '#0a0a0a' }}>
-            <span className="text-[#5a6a3a] mr-2 text-sm">{'>'}</span>
+          <div className="flex-none flex items-center h-7 px-2 border-t border-[rgba(42,58,26,0.4)]" style={{ background: 'rgba(0,0,0,0.5)' }}>
+            <span className="text-[#5a6a3a] mr-1.5 text-xs">{'>'}</span>
             <input
               ref={inputRef}
               type="text"
@@ -2203,9 +2214,9 @@ const allNazForMap = [
               onKeyDown={handleTermKeyDown}
               onFocus={() => { if (S.current) S.current.gamePaused = true }}
               onBlur={() => { if (S.current) S.current.gamePaused = false }}
-              placeholder="/mods o escribe aquí..."
-              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a]"
-              style={{ fontSize: '16px' }}
+              placeholder="/mods..."
+              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a] text-xs"
+              style={{ fontSize: '14px' }}
             />
           </div>
 
@@ -2246,21 +2257,12 @@ const allNazForMap = [
         </div>
       )}
 
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden" style={{ minHeight: 0 }}>
-        <canvas
-          ref={canvasRef}
-          className="block w-full h-full"
-          style={{ imageRendering: 'pixelated' }}
-        />
-
-        {screen !== 'game' && (
-          <canvas ref={minimapRef} width={64} height={64} className="hidden" />
-        )}
-      </div>
-
+      {/* BOTTOM CONTROLS - Overlay with gradient */}
       {screen === 'game' && S.current && (
-        <div className="flex-none px-3 pb-3 pt-2 flex items-end justify-between gap-3 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)', minHeight: '120px', border: '2px solid #c8a84b' }}>
-          {console.log('[v0] Bottom controls rendering, screen:', screen, 'S.current:', !!S.current)}
+        <div 
+          className="absolute bottom-0 left-0 right-0 px-2 pb-2 pt-3 flex items-end justify-between gap-2 z-10"
+          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.4) 70%, transparent 100%)' }}
+        >
           {invPanelOpen && S.current?.p && (
             <div
               className="absolute bottom-full right-3 mb-1 w-[200px] rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
@@ -2292,35 +2294,36 @@ const allNazForMap = [
 
           <div
             ref={joystickRef}
-            className="rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0"
-            style={{ width: 90, height: 90, touchAction: 'none', opacity: 0.85 }}
+            className="rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ width: 70, height: 70, touchAction: 'none', background: 'rgba(200,168,75,0.1)', border: '2px solid rgba(200,168,75,0.25)' }}
             onPointerDown={handleJoystickPointerDown}
             onPointerMove={handleJoystickPointerMove}
             onPointerUp={handleJoystickPointerUp}
             onPointerCancel={handleJoystickPointerUp}
           >
             <div
-              className="w-10 h-10 rounded-full bg-[rgba(200,168,75,0.25)] border border-[rgba(200,168,75,0.5)]"
-              style={{ transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`, pointerEvents: 'none' }}
+              className="w-7 h-7 rounded-full"
+              style={{ transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`, pointerEvents: 'none', background: 'rgba(200,168,75,0.35)', border: '1px solid rgba(200,168,75,0.6)' }}
             />
           </div>
 
-          <div className="flex flex-col gap-2 items-end">
-            <div className="flex gap-2 items-center">
+          <div className="flex flex-col gap-1.5 items-end">
+            {/* Primary row: Attack, Defend, Ring */}
+            <div className="flex gap-1.5 items-center">
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); doAttack() }}
                 onClick={(e) => { e.preventDefault(); doAttack() }}
-                className="w-16 h-16 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all"
-                title="Atacar"
+                className="w-12 h-12 rounded-xl flex items-center justify-center text-xl active:scale-95 transition-all"
+                style={{ background: 'rgba(106,26,26,0.85)', border: '2px solid #8a2a2a' }}
               >
                 {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
               </button>
 
               <button
-                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
-                onClick={(e) => { e.preventDefault(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
-                className="w-16 h-16 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all"
-                title="Defender"
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Defensa!'); notify('DEFENSA', '#5a8a3a') } }}
+                onClick={(e) => { e.preventDefault(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Defensa!'); notify('DEFENSA', '#5a8a3a') } }}
+                className="w-12 h-12 rounded-xl flex items-center justify-center text-xl active:scale-95 transition-all"
+                style={{ background: 'rgba(26,48,64,0.85)', border: '2px solid #2a4a5a' }}
               >
                 🛡️
               </button>
@@ -2329,45 +2332,46 @@ const allNazForMap = [
                 <button
                   onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); useRing() }}
                   onClick={(e) => { e.preventDefault(); useRing() }}
-                  className="w-16 h-16 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all animate-pulse"
-                  title="Usar Anillo"
+                  className="w-12 h-12 rounded-xl flex items-center justify-center text-xl active:scale-95 transition-all animate-pulse"
+                  style={{ background: 'rgba(42,32,16,0.85)', border: '2px solid #c8a84b' }}
                 >
                   💍
                 </button>
               )}
             </div>
 
-            <div className="flex gap-2 items-center">
+            {/* Secondary row: Items */}
+            <div className="flex gap-1.5 items-center">
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const idx = S.current?.p?.inv.indexOf('miruvor') ?? -1; if (idx >= 0) useItem(idx) }}
                 onClick={(e) => { e.preventDefault(); const idx = S.current?.p?.inv.indexOf('miruvor') ?? -1; if (idx >= 0) useItem(idx) }}
-                className="w-12 h-12 rounded-xl bg-[#1a3020] border-2 border-[#2a4a30] flex items-center justify-center text-lg active:bg-[#2a4030] active:scale-95 transition-all"
-                title="Poción"
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm active:scale-95 transition-all"
+                style={{ background: 'rgba(26,48,32,0.8)', border: '1px solid #2a4a30' }}
               >🧴</button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const idx = S.current?.p?.inv.indexOf('lembas') ?? -1; if (idx >= 0) useItem(idx) }}
                 onClick={(e) => { e.preventDefault(); const idx = S.current?.p?.inv.indexOf('lembas') ?? -1; if (idx >= 0) useItem(idx) }}
-                className="w-12 h-12 rounded-xl bg-[#2a2010] border-2 border-[#4a3a20] flex items-center justify-center text-lg active:bg-[#3a3020] active:scale-95 transition-all"
-                title="Lembas"
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm active:scale-95 transition-all"
+                style={{ background: 'rgba(42,32,16,0.8)', border: '1px solid #4a3a20' }}
               >🍞</button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); tryInteract() }}
                 onClick={(e) => { e.preventDefault(); tryInteract() }}
-                className="w-12 h-12 rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center text-lg active:bg-[#1a2a3a] active:scale-95 transition-all"
-                title="Hablar"
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm active:scale-95 transition-all"
+                style={{ background: 'rgba(16,32,48,0.8)', border: '1px solid #2a3a4a' }}
               >💬</button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); setInvPanelOpen(v => !v) }}
                 onClick={(e) => { e.preventDefault(); setInvPanelOpen(v => !v) }}
-                className="w-12 h-12 rounded-xl bg-[#1a1a2a] border-2 border-[#2a2a4a] flex items-center justify-center text-lg active:bg-[#2a2a3a] active:scale-95 transition-all"
-                title="Inventario"
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm active:scale-95 transition-all relative"
+                style={{ background: 'rgba(26,26,42,0.8)', border: '1px solid #2a2a4a' }}
               >
                 🎒
                 {(S.current.p?.inv.length ?? 0) > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#c8a84b] text-[#1a1408] text-[9px] font-bold flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#c8a84b] text-[#1a1408] text-[8px] font-bold flex items-center justify-center">
                     {S.current.p?.inv.length}
                   </span>
                 )}
