@@ -900,13 +900,18 @@ export default function GamePage() {
         if (st.waveDelay === 60) {
           log('d', '¡Se acerca otra oleada!')
         }
-        if (st.waveDelay === 0 && st.wave < 10) {
+if (st.waveDelay === 0 && st.wave < 10) {
           st.wave++
-          const newNaz = createNazgul(st.wave)
-          st.nazgul = newNaz
-          st.nazgulList.push(newNaz)
-          log('d', `¡OLEADA ${st.wave} - NUEVO NAZGÛL!`)
-          notify(`⚠ OLEADA ${st.wave}`, '#e24b4a')
+          const count = st.wave
+          for (let i = 0; i < count; i++) {
+            const newNaz = createNazgul(st.wave)
+            newNaz.x = (WW - 3 - i * 3) * T
+            newNaz.y = (36 + (i % 3) * 2) * T
+            st.nazgulList.push(newNaz)
+            if (!st.nazgul) st.nazgul = newNaz
+          }
+          log('d', `¡OLEADA ${st.wave} — ${count} NAZGÛL!`)
+          notify(`⚠ OLEADA ${st.wave} ×${count}`, '#e24b4a')
         }
       }
     }
@@ -1073,7 +1078,15 @@ export default function GamePage() {
       }
     }
 
-    const allNazgul = st.nazgul ? [st.nazgul] : []
+    const seen = new Set()
+      const allNazgul = [
+        ...(st.nazgul ? [st.nazgul] : []),
+        ...st.nazgulList.filter(n => n !== st.nazgul)
+      ].filter(n => {
+        if (seen.has(n)) return false
+        seen.add(n)
+        return true
+      })
     for (const naz of allNazgul) {
       if (!naz) continue
 
@@ -1121,7 +1134,8 @@ export default function GamePage() {
           }
           st.nazgulList = st.nazgulList.filter(n => n !== naz)
 
-          if (!st.nazgul && st.nazgulList.length === 0) {
+          const allDead = !st.nazgul && st.nazgulList.filter(n => n.state !== 'dying' && n.hp > 0).length === 0
+              if (allDead) {
             if (st.gameMode === 'horde' && st.wave < 10) {
               st.waveDelay = 180
               log('s', `Oleada ${st.wave} completada. Prepárate para la siguiente...`)
@@ -1594,11 +1608,15 @@ export default function GamePage() {
       mctx.fillRect(mx - 1.5, my - 1.5, 3, 3)
     }
 
-    if (st.nazgul && st.nazgul.hp > 0) {
-      const mx = (st.nazgul.x / T) * scaleX, my = (st.nazgul.y / T) * scaleY
+const allNazForMap = [
+      ...(st.nazgul && st.nazgul.hp > 0 ? [st.nazgul] : []),
+      ...st.nazgulList.filter(n => n !== st.nazgul && n.hp > 0)
+    ]
+    allNazForMap.forEach(naz => {
+      const mx = (naz.x / T) * scaleX, my = (naz.y / T) * scaleY
       mctx.fillStyle = Math.floor(Date.now() / 180) % 2 === 0 ? '#ff4020' : '#8a2010'
       mctx.fillRect(mx - 2, my - 2, 4, 4)
-    }
+    })
 
     if (st.p) {
       const mx = (st.p.x / T) * scaleX, my = (st.p.y / T) * scaleY
