@@ -2246,7 +2246,7 @@ const allNazForMap = [
         </div>
       )}
 
-      <div className="flex-1 relative flex items-center justify-center">
+      <div className="flex-1 relative flex items-center justify-center overflow-hidden" style={{ minHeight: 0 }}>
         <canvas
           ref={canvasRef}
           className="block w-full h-full"
@@ -2259,8 +2259,8 @@ const allNazForMap = [
       </div>
 
       {screen === 'game' && S.current && (
-        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
-
+        <div className="flex-none px-3 pb-3 pt-2 flex items-end justify-between gap-3 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)', minHeight: '120px', border: '2px solid #c8a84b' }}>
+          {console.log('[v0] Bottom controls rendering, screen:', screen, 'S.current:', !!S.current)}
           {invPanelOpen && S.current?.p && (
             <div
               className="absolute bottom-full right-3 mb-1 w-[200px] rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
