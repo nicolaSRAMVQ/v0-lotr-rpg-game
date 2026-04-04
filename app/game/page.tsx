@@ -139,6 +139,7 @@ interface Player {
   dir: Dir
   frame: number
   inv: string[]
+  gold: number
   ringActive: number
   ringShimmer: number
   invT: number
@@ -408,6 +409,7 @@ export default function GamePage() {
         dir: 'down',
         frame: 0,
         inv: [...charDef.startItems],
+        gold: 0,
         ringActive: 0,
         ringShimmer: 0,
         invT: 0,
@@ -810,7 +812,11 @@ export default function GamePage() {
         if (naz.hp <= 0) {
           naz.state = 'dying'
           naz.deathFrame = 0
+          const goldDrop = 5 + naz.waveNum * 2
+          p.gold += goldDrop
+          S.current.fx.push({ x: naz.x, y: naz.y - 20, text: `+${goldDrop} MC`, color: '#c8a84b', vy: -1.2, life: 50 })
           log('e', '¡El Nazgûl cae!')
+          log('s', `+${goldDrop} MC obtenidos`)
         }
       }
     }
@@ -2126,6 +2132,9 @@ export default function GamePage() {
               </div>
               <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
+              </div>
+              <div className="text-[#c8a84b] text-xs font-medium">
+                ◈ {S.current.p.gold} MC
               </div>
               {S.current.heroMode && (
                 <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
