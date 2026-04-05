@@ -1959,7 +1959,6 @@ export default function GamePage() {
         }
       }
     }
-    }
 
     const px = p.x - sx, py = p.y - sy
 
