@@ -155,6 +155,8 @@ interface Player {
   daggerAngle: number
   staffRayAnim: number
   staffRayTarget: { x: number; y: number } | null
+  xp: number
+  level: number
 }
 
 interface FX {
@@ -220,6 +222,9 @@ interface GameState {
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
+
+const XP_TABLE = [0, 50, 120, 220, 360, 550, 800, 1120, 1520, 2020]
+const XP_REWARDS = { nazgul: 30, villager_saved: 10 }
 
 export default function GamePage() {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -425,6 +430,8 @@ export default function GamePage() {
         daggerAngle: 0,
         staffRayAnim: 0,
         staffRayTarget: null,
+        xp: 0,
+        level: 1,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -1164,6 +1171,18 @@ export default function GamePage() {
         }
         if (naz.deathFrame === 80) {
           st.groundMarks.push({ x: naz.x, y: naz.y, alpha: 0.6 })
+          if (st.p) {
+            st.p.xp += XP_REWARDS.nazgul
+            const nextLvl = st.p.level
+            if (nextLvl < XP_TABLE.length && st.p.xp >= XP_TABLE[nextLvl]) {
+              st.p.level++
+              st.p.maxhp += 1
+              st.p.hp = Math.min(st.p.hp + 1, st.p.maxhp)
+              st.p.dmg += 1
+              log('e', `¡NIVEL ${st.p.level}! +1 HP máx, +1 DMG`)
+              notify(`⭐ NIVEL ${st.p.level}`, '#c8a84b')
+            }
+          }
           const drops = ['lembas', 'miruvor']
           const numDrops = 1 + Math.floor(Math.random() * 2)
           for (let i = 0; i < numDrops; i++) {
@@ -2284,6 +2303,17 @@ export default function GamePage() {
               <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
               </div>
+              {S.current.p && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-[#c8a84b] text-[10px] font-bold">Nv.{S.current.p.level}</span>
+                  <div className="w-16 h-1.5 rounded-full bg-[#2a2010]">
+                    <div
+                      className="h-full rounded-full bg-[#c8a84b] transition-all"
+                      style={{ width: `${Math.min(100, ((S.current.p.xp - (XP_TABLE[S.current.p.level - 1] || 0)) / ((XP_TABLE[S.current.p.level] || XP_TABLE[XP_TABLE.length-1]) - (XP_TABLE[S.current.p.level - 1] || 0))) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               {S.current.heroMode && (
                 <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
               )}
