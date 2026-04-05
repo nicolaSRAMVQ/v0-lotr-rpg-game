@@ -2149,7 +2149,7 @@ export default function GamePage() {
         const parent = canvasRef.current.parentElement
         if (parent) {
           canvasRef.current.width = parent.clientWidth
-          canvasRef.current.height = window.innerHeight
+          canvasRef.current.height = parent.clientHeight
         }
       }
       setIsCompact(window.innerHeight < 700)
@@ -2272,11 +2272,11 @@ export default function GamePage() {
   return (
     <div
       ref={rootRef}
-      className="relative w-full flex flex-col select-none"
-      style={{ touchAction: 'manipulation', height: '100dvh', background: '#0a0804' }}
+      className="relative w-full bg-[#0a0804] flex flex-col overflow-hidden select-none"
+      style={{ touchAction: 'manipulation', height: '100dvh' }}
     >
       {screen === 'game' && S.current?.p && (
-        <div className="absolute top-0 left-0 right-0 px-2 pt-1 pb-1 z-20" style={{ background: 'rgba(10,8,4,0.72)', backdropFilter: 'blur(0px)' }}>
+        <div className="flex-none px-2 pt-1 pb-0 z-10">
           <div className="flex items-start justify-between">
             <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden bg-[rgba(0,0,0,0.5)]">
               <canvas ref={minimapRef} width={64} height={64} className="block" />
@@ -2324,7 +2324,8 @@ export default function GamePage() {
 
       {screen === 'game' && S.current && (
         <div 
-          className="absolute left-2 right-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-20" style={{ top: '82px', background: 'rgba(10,10,10,0.88)' }}
+          className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
+          style={{ background: '#0a0a0a', height: 'auto' }}
         >
           <div
             ref={logRef}
@@ -2411,11 +2412,11 @@ export default function GamePage() {
         </div>
       )}
 
-      <div className="absolute inset-0">
+      <div className="flex-1 relative">
         <canvas
           ref={canvasRef}
-          className="block"
-          style={{ imageRendering: 'pixelated', display: 'block' }}
+          className="block w-full h-full"
+          style={{ imageRendering: 'pixelated' }}
         />
 
         {screen !== 'game' && (
@@ -2424,7 +2425,7 @@ export default function GamePage() {
       </div>
 
       {screen === 'game' && S.current && (
-        <div className="absolute bottom-0 left-0 right-0 px-2 pb-2 pt-1 flex items-end justify-between gap-2 z-20 relative" style={{ background: 'rgba(10,8,4,0.80)' }}>
+        <div className="flex-none px-2 pb-2 pt-1 flex items-end justify-between gap-2 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
 
           {invPanelOpen && S.current?.p && (
             <div
