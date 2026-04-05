@@ -489,6 +489,15 @@ export default function GamePage() {
     setScreen('charsel')
   }, [])
 
+  const getNearbyItem = useCallback(() => {
+    if (!S.current?.p) return null
+    const p = S.current.p
+    return S.current.droppedItems.find(di => {
+      const dx = di.x - p.x, dy = di.y - p.y
+      return Math.sqrt(dx*dx + dy*dy) < T * 2
+    }) || null
+  }, [])
+
   const getTermContext = useCallback((): TermContext => {
     if (!S.current || !S.current.p) return 'exploration'
     if (S.current.dlg.active) return 'dialog'
@@ -1004,7 +1013,7 @@ export default function GamePage() {
       di.bouncePhase += 0.1
       const pdx = di.x - p.x, pdy = di.y - p.y
       const pdist = Math.sqrt(pdx * pdx + pdy * pdy)
-      if (pdist < T && p.inv.length < 5) {
+      if (pdist < T * 1.5) {
         p.inv.push(di.item)
         log('s', `Recoges ${ITEMS[di.item]?.icon || di.item}`)
         notify(`+${ITEMS[di.item]?.icon || '?'}`, '#c8a84b')
@@ -1802,6 +1811,14 @@ export default function GamePage() {
 
     for (const di of st.droppedItems) {
       const bounce = Math.sin(di.bouncePhase) * 3
+      const ddx = di.x - p.x, ddy = di.y - p.y
+      const ddist = Math.sqrt(ddx*ddx + ddy*ddy)
+      if (ddist < T * 2) {
+        ctx.font = 'bold 9px monospace'
+        ctx.fillStyle = '#c8a84b'
+        ctx.textAlign = 'center'
+        ctx.fillText('📦', di.x - sx, di.y - sy - 18 + bounce)
+      }
       ctx.font = '16px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText(ITEMS[di.item]?.icon || '?', di.x - sx, di.y - sy - 8 + bounce)
@@ -2516,11 +2533,11 @@ export default function GamePage() {
               >🍞</button>
 
               <button
-                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); tryInteract() }}
-                onClick={(e) => { e.preventDefault(); tryInteract() }}
-                className="w-12 h-12 rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center text-lg active:bg-[#1a2a3a] active:scale-95 transition-all"
-                title="Hablar"
-              >💬</button>
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const nearby = getNearbyItem(); if (nearby) { const idx = S.current!.droppedItems.indexOf(nearby); if (idx >= 0) { S.current!.p!.inv.push(nearby.item); log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`); notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b'); S.current!.droppedItems.splice(idx, 1); forceUpdate(n => n + 1); } } else { tryInteract(); } }}
+                onClick={(e) => { e.preventDefault(); const nearby = getNearbyItem(); if (nearby) { const idx = S.current!.droppedItems.indexOf(nearby); if (idx >= 0) { S.current!.p!.inv.push(nearby.item); log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`); notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b'); S.current!.droppedItems.splice(idx, 1); forceUpdate(n => n + 1); } } else { tryInteract(); } }}
+                className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center text-lg active:scale-95 transition-all ${getNearbyItem() ? 'bg-[#1a2a10] border-[#3a5a20]' : 'bg-[#102030] border-[#2a3a4a] active:bg-[#1a2a3a]'}`}
+                title={getNearbyItem() ? 'Recoger item' : 'Hablar'}
+              >{getNearbyItem() ? '📦' : '💬'}</button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); setInvPanelOpen(v => !v) }}
