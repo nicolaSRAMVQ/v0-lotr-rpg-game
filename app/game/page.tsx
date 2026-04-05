@@ -12,6 +12,8 @@ const CHARS: Record<string, { name: string; spd: number; maxhp: number; dmg: num
   frodo: { name: 'FRODO', spd: 2.8, maxhp: 6, dmg: 6, range: 2.4, startItems: ['anillo', 'lembas'] },
   aragorn: { name: 'ARAGORN', spd: 2.5, maxhp: 10, dmg: 10, range: 2.4, startItems: ['espada'] },
   gandalf: { name: 'GANDALF', spd: 2.0, maxhp: 8, dmg: 12, range: 3.5, startItems: ['baston', 'miruvor'] },
+  legolas: { name: 'LEGOLAS', spd: 3.2, maxhp: 6, dmg: 8, range: 5.0, startItems: ['arco', 'lembas'] },
+  gimli: { name: 'GIMLI', spd: 1.8, maxhp: 14, dmg: 15, range: 1.6, startItems: ['hacha', 'miruvor'] },
 }
 
 // ============ ITEMS ============
@@ -22,6 +24,8 @@ const ITEMS: Record<string, { icon: string; desc: string }> = {
   baston: { icon: '🪄', desc: 'Bastón de mago. Área de ataque.' },
   miruvor: { icon: '🧴', desc: 'Cordial élfico. Restaura HP completo.' },
   espada_rota: { icon: '🗡️', desc: 'Espada rota. Daño reducido.' },
+  arco: { icon: '🏹', desc: 'Arco élfico. Ataque a distancia.' },
+  hacha: { icon: '🪓', desc: 'Hacha enana. Daño demoledor.' },
 }
 
 // ============ VILLAGER DEFINITIONS ============
@@ -784,6 +788,41 @@ export default function GamePage() {
       return
     }
 
+    // Legolas: disparo de flecha a distancia con partículas doradas
+    if (p.char === 'legolas') {
+      p.atkCd = 35
+      p.daggerAnim = 12
+      p.daggerAngle = dirAngles[p.dir]
+      for (let i = 0; i < 5; i++) {
+        const angle = p.daggerAngle + (Math.random() - 0.5) * 0.2
+        S.current.parts.push({
+          x: p.x + Math.cos(angle) * T,
+          y: p.y + Math.sin(angle) * T,
+          vx: Math.cos(angle) * 4,
+          vy: Math.sin(angle) * 4,
+          color: '#d4a820',
+          life: 10, maxLife: 10,
+        })
+      }
+    }
+    // Gimli: golpe de hacha en área pequeña, más daño
+    if (p.char === 'gimli') {
+      p.atkCd = 40
+      p.sweepAnim = 18
+      p.sweepAngle = dirAngles[p.dir]
+      for (let i = 0; i < 8; i++) {
+        const angle = p.sweepAngle - Math.PI / 4 + (Math.PI / 2) * (i / 8)
+        S.current.parts.push({
+          x: p.x + Math.cos(angle) * T * 1.6,
+          y: p.y + Math.sin(angle) * T * 1.6,
+          vx: Math.cos(angle) * 2,
+          vy: Math.sin(angle) * 2,
+          color: '#9a9aaa',
+          life: 14, maxLife: 14,
+        })
+      }
+    }
+
     const allNaz = S.current.nazgul ? [S.current.nazgul, ...S.current.nazgulList.filter(n => n !== S.current!.nazgul)] : S.current.nazgulList
 
     for (const naz of allNaz) {
@@ -794,9 +833,11 @@ export default function GamePage() {
       let effectiveRange = p.range
       if (p.char === 'aragorn') effectiveRange = p.range * 1.2
       if (p.char === 'frodo') effectiveRange = 1.8
+      if (p.char === 'legolas') effectiveRange = 5.0
+      if (p.char === 'gimli') effectiveRange = 1.6
 
       if (dist < effectiveRange * T) {
-        const dmg = p.char === 'frodo' ? 6 : p.dmg
+        const dmg = p.char === 'frodo' ? 6 : p.char === 'gimli' ? p.dmg + 3 : p.dmg
         naz.hp -= dmg
         naz.invT = 10
         S.current.fx.push({
@@ -1467,6 +1508,70 @@ export default function GamePage() {
       ctx.fillStyle = 'rgba(20,0,40,0.4)'
       ctx.fillRect(-10 * sc, -5 * sc, 4 * sc, 8 * sc)
       ctx.fillRect(6 * sc, -5 * sc, 4 * sc, 8 * sc)
+    } else if (char === 'legolas') {
+      // Capa verde élfica
+      ctx.fillStyle = '#3a5820'
+      ctx.fillRect(-5 * sc, -8 * sc, 10 * sc, 11 * sc)
+      ctx.fillStyle = '#2a4010'
+      ctx.fillRect(-3 * sc, 3 * sc, 3 * sc, 5 * sc + legAnim * sc)
+      ctx.fillRect(0, 3 * sc, 3 * sc, 5 * sc - legAnim * sc)
+      // Piel clara élfica
+      ctx.fillStyle = '#e8d0a0'
+      ctx.fillRect(-3 * sc, -16 * sc, 6 * sc, 8 * sc)
+      // Pelo dorado largo
+      ctx.fillStyle = '#d4a820'
+      ctx.fillRect(-4 * sc, -17 * sc, 8 * sc, 3 * sc)
+      ctx.fillRect(-4 * sc, -14 * sc, 2 * sc, 8 * sc)
+      ctx.fillRect(2 * sc, -14 * sc, 2 * sc, 8 * sc)
+      // Arco
+      ctx.strokeStyle = '#6a4010'
+      ctx.lineWidth = 1.5 * sc
+      ctx.beginPath()
+      ctx.arc(8 * sc, -8 * sc, 10 * sc, -0.8, 0.8)
+      ctx.stroke()
+      ctx.strokeStyle = '#c8c870'
+      ctx.lineWidth = 0.8 * sc
+      ctx.beginPath()
+      ctx.moveTo(8 * sc, -17 * sc)
+      ctx.lineTo(8 * sc, 1 * sc)
+      ctx.stroke()
+      // Ojos
+      ctx.fillStyle = '#1a2808'
+      if (dir === 'down' || dir === 'left' || dir === 'right') {
+        ctx.fillRect(-1.5 * sc, -12 * sc, 1.5 * sc, 1.5 * sc)
+        ctx.fillRect(1 * sc, -12 * sc, 1.5 * sc, 1.5 * sc)
+      }
+    } else if (char === 'gimli') {
+      // Armadura enana marrón/gris
+      ctx.fillStyle = '#5a4020'
+      ctx.fillRect(-7 * sc, -6 * sc, 14 * sc, 13 * sc)
+      ctx.fillStyle = '#7a6030'
+      ctx.fillRect(-5 * sc, -4 * sc, 10 * sc, 7 * sc)
+      // Piernas cortas y anchas
+      ctx.fillStyle = '#4a3018'
+      ctx.fillRect(-4 * sc, 6 * sc, 4 * sc, 5 * sc + legAnim * sc)
+      ctx.fillRect(0, 6 * sc, 4 * sc, 5 * sc - legAnim * sc)
+      // Cabeza + barba
+      ctx.fillStyle = '#c08040'
+      ctx.fillRect(-4 * sc, -14 * sc, 8 * sc, 8 * sc)
+      ctx.fillStyle = '#8a5020'
+      ctx.fillRect(-4 * sc, -8 * sc, 8 * sc, 6 * sc)
+      ctx.fillRect(-3 * sc, -2 * sc, 6 * sc, 4 * sc)
+      // Casco de hierro
+      ctx.fillStyle = '#8a8890'
+      ctx.fillRect(-5 * sc, -15 * sc, 10 * sc, 2 * sc)
+      ctx.fillRect(-6 * sc, -13 * sc, 12 * sc, 3 * sc)
+      // Hacha sobre hombro
+      ctx.fillStyle = '#8a8890'
+      ctx.fillRect(6 * sc, -12 * sc, 2 * sc, 14 * sc)
+      ctx.fillStyle = '#c08020'
+      ctx.fillRect(4 * sc, -14 * sc, 6 * sc, 4 * sc)
+      // Ojos profundos
+      ctx.fillStyle = '#1a0800'
+      if (dir !== 'up') {
+        ctx.fillRect(-2 * sc, -9 * sc, 1.5 * sc, 1.5 * sc)
+        ctx.fillRect(0.5 * sc, -9 * sc, 1.5 * sc, 1.5 * sc)
+      }
     } else if (char === 'villager') {
       const color = extraColor || '#8a6030'
       ctx.fillStyle = color
@@ -2643,6 +2748,29 @@ function CharPreview({ charKey }: { charKey: string }) {
       ctx.lineTo(0, -28 * sc)
       ctx.lineTo(6 * sc, -18 * sc)
       ctx.fill()
+    } else if (charKey === 'legolas') {
+      ctx.fillStyle = '#3a5820'
+      ctx.fillRect(-5 * sc, -8 * sc, 10 * sc, 11 * sc)
+      ctx.fillStyle = '#e8d0a0'
+      ctx.fillRect(-3 * sc, -16 * sc, 6 * sc, 8 * sc)
+      ctx.fillStyle = '#d4a820'
+      ctx.fillRect(-4 * sc, -17 * sc, 8 * sc, 3 * sc)
+      ctx.strokeStyle = '#6a4010'
+      ctx.lineWidth = 1.5 * sc
+      ctx.beginPath()
+      ctx.arc(8 * sc, -8 * sc, 10 * sc, -0.8, 0.8)
+      ctx.stroke()
+    } else if (charKey === 'gimli') {
+      ctx.fillStyle = '#5a4020'
+      ctx.fillRect(-7 * sc, -6 * sc, 14 * sc, 10 * sc)
+      ctx.fillStyle = '#c08040'
+      ctx.fillRect(-4 * sc, -14 * sc, 8 * sc, 8 * sc)
+      ctx.fillStyle = '#8a5020'
+      ctx.fillRect(-4 * sc, -7 * sc, 8 * sc, 5 * sc)
+      ctx.fillStyle = '#8a8890'
+      ctx.fillRect(-5 * sc, -17 * sc, 10 * sc, 4 * sc)
+      ctx.fillRect(6 * sc, -14 * sc, 2 * sc, 16 * sc)
+      ctx.fillRect(4 * sc, -14 * sc, 6 * sc, 4 * sc)
     }
 
     ctx.restore()
