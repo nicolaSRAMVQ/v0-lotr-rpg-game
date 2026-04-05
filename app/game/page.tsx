@@ -26,15 +26,14 @@ const ITEMS: Record<string, { icon: string; desc: string }> = {
 
 // ============ VILLAGER DEFINITIONS ============
 const VILLAGER_DEFS = [
-  { name: 'Rosie', color: '#c87060', hat: false, items: ['lembas'], isMerchant: false },
-  { name: 'Fatty', color: '#8a6030', hat: true, items: ['miruvor'], isMerchant: false },
-  { name: 'Lobelia', color: '#9060a0', hat: true, items: ['lembas'], isMerchant: false },
-  { name: 'Poppy', color: '#60a070', hat: false, items: [], isMerchant: false },
-  { name: 'Ted', color: '#607080', hat: true, items: [], isMerchant: false },
-  { name: 'Ponto', color: '#805030', hat: true, items: [], isMerchant: false },
-  { name: 'Milo', color: '#506830', hat: false, items: ['lembas'], isMerchant: false },
-  { name: 'Pearl', color: '#a07050', hat: false, items: [], isMerchant: false },
-  { name: 'Tendero', color: '#8a7050', hat: false, items: [], isMerchant: true },
+  { name: 'Rosie', color: '#c87060', hat: false, items: ['lembas'] },
+  { name: 'Fatty', color: '#8a6030', hat: true, items: ['miruvor'] },
+  { name: 'Lobelia', color: '#9060a0', hat: true, items: ['lembas'] },
+  { name: 'Poppy', color: '#60a070', hat: false, items: [] },
+  { name: 'Ted', color: '#607080', hat: true, items: [] },
+  { name: 'Ponto', color: '#805030', hat: true, items: [] },
+  { name: 'Milo', color: '#506830', hat: false, items: ['lembas'] },
+  { name: 'Pearl', color: '#a07050', hat: false, items: [] },
 ]
 
 // ============ HOBBIT HOLES ============
@@ -42,25 +41,6 @@ const HOLES = [
   { tx: 15, ty: 22 }, { tx: 25, ty: 18 }, { tx: 38, ty: 24 }, { tx: 50, ty: 20 },
   { tx: 62, ty: 22 }, { tx: 72, ty: 18 }, { tx: 18, ty: 55 }, { tx: 30, ty: 52 },
   { tx: 45, ty: 58 }, { tx: 60, ty: 54 }, { tx: 75, ty: 56 }, { tx: 82, ty: 22 },
-  { tx: 50, ty: 35 }, // Tendero - near plaza
-]
-
-// ============ ENEMY DEFINITIONS ============
-const ENEMY_DEFS: Record<string, { hp: number; dmg: number; spd: number; goldDrop: number; drops: { item: string; chance: number }[] }> = {
-  spider: { hp: 3, dmg: 1, spd: 1.8, goldDrop: 1, drops: [{ item: 'lembas', chance: 0.2 }] },
-  giant_rat: { hp: 2, dmg: 1, spd: 2.2, goldDrop: 1, drops: [{ item: 'lembas', chance: 0.2 }] },
-}
-
-// ============ MISSION DEFINITIONS ============
-const MISSION_DEFS: Record<string, { npc: string; objective: string; reward: number; type: 'kill' | 'deliver'; target?: string; targetNpc?: string; count?: number }> = {
-  kill_spiders: { npc: 'Ted', objective: 'Mata 3 arañas', reward: 8, type: 'kill', target: 'spider', count: 3 },
-  deliver_food: { npc: 'Rosie', objective: 'Entrega lembas a Fatty', reward: 5, type: 'deliver', target: 'lembas', targetNpc: 'Fatty' },
-}
-
-// ============ SHOP ITEMS ============
-const SHOP_ITEMS = [
-  { id: 'lembas', name: 'Lembas', effect: '+2 HP', price: 3 },
-  { id: 'miruvor', name: 'Poción', effect: '+5 HP', price: 5 },
 ]
 
 // ============ MOD COMMANDS ============
@@ -76,7 +56,6 @@ const MOD_COMMANDS = [
   { cmd: '/modo explorar', desc: 'Modo exploración libre' },
   { cmd: '/nazgul 1', desc: 'Spawna 1 Nazgûl' },
   { cmd: '/nazgul 3', desc: 'Spawna 3 Nazgûl' },
-  { cmd: '/gold 10', desc: 'Agrega 10 MC' },
 ]
 
 // ============ TYPES ============
@@ -128,35 +107,6 @@ interface Nazgul {
   invT: number
   deathFrame: number
   waveNum: number
-}
-
-interface Enemy {
-  type: 'spider' | 'giant_rat'
-  x: number
-  y: number
-  hp: number
-  maxhp: number
-  spd: number
-  dmg: number
-  dir: Dir
-  frame: number
-  atkT: number
-  invT: number
-  state: 'wander' | 'chase' | 'dying'
-  deathFrame: number
-}
-
-interface Mission {
-  id: string
-  npc: string
-  objective: string
-  reward: number
-  type: 'kill' | 'deliver'
-  target?: string
-  targetNpc?: string
-  count?: number
-  progress: number
-  completed: boolean
 }
 
 interface GandalfAlly {
@@ -263,12 +213,6 @@ interface GameState {
   screenFlash: number
   groundMarks: { x: number; y: number; alpha: number }[]
   gamePaused: boolean
-  // v5 core loop
-  enemies: Enemy[]
-  enemySpawnTimer: number
-  missions: Mission[]
-  activeMission: Mission | null
-  merchantTalked: boolean
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
@@ -507,12 +451,6 @@ export default function GamePage() {
       screenFlash: 0,
       groundMarks: [],
       gamePaused: false,
-      // v5 core loop
-      enemies: [],
-      enemySpawnTimer: 180,
-      missions: [],
-      activeMission: null,
-      merchantTalked: false,
     }
 
     if (mode === 'exploration') {
@@ -612,17 +550,10 @@ export default function GamePage() {
       }
       log('d', `¡${n} NAZGÛL INVOCADOS!`)
       notify('⚠ NAZGÛL', '#e24b4a')
-  } else if (cmd.startsWith('/invocar ')) {
-    const name = cmd.replace('/invocar ', '')
-    log('s', `Invocando a ${name}... (próximamente)`)
-  } else if (cmd.startsWith('/gold ')) {
-    const amount = parseInt(cmd.replace('/gold ', '')) || 10
-    if (st.p) {
-      st.p.gold += amount
-      log('s', `+${amount} MC agregados.`)
-      notify(`+${amount} MC`, '#c8a84b')
+    } else if (cmd.startsWith('/invocar ')) {
+      const name = cmd.replace('/invocar ', '')
+      log('s', `Invocando a ${name}... (próximamente)`)
     }
-  }
 
     st.termInput = ''
     st.modMenuOpen = false
@@ -646,49 +577,21 @@ export default function GamePage() {
   }, [log])
 
   const openVillagerDlg = useCallback((v: Villager) => {
-    if (!S.current || !S.current.p) return
-    const st = S.current
-    const opts: { l: string; action?: string }[] = []
-    
-    // Check if this NPC has a mission to give
-    const missionForNpc = Object.entries(MISSION_DEFS).find(([, m]) => m.npc === v.name && !st.missions.find(sm => sm.id === Object.keys(MISSION_DEFS).find(k => MISSION_DEFS[k] === m)))
-    // Check if player has active mission to complete with this NPC
-    const missionToComplete = st.activeMission && st.activeMission.completed && st.activeMission.npc === v.name
-    // Check if this is deliver target
-    const deliverTarget = st.activeMission && st.activeMission.type === 'deliver' && st.activeMission.targetNpc === v.name && st.p.inv.includes(st.activeMission.target || '')
-    
-    if (missionToComplete) {
-      log('e', `${v.name.toUpperCase()}: ¡Lo lograste! Aquí está tu recompensa.`)
-      opts.push({ l: `Recibir +${st.activeMission!.reward} MC`, action: 'complete_mission' })
-    } else if (deliverTarget) {
-      log('e', `${v.name.toUpperCase()}: ¿Eso es para mí? ¡Gracias!`)
-      opts.push({ l: 'Entregar lembas', action: 'deliver_item' })
-    } else if (missionForNpc) {
-      const [missionId, mission] = missionForNpc
-      log('e', `${v.name.toUpperCase()}: Tengo un trabajo para vos.`)
-      log('e', `${v.name.toUpperCase()}: ${mission.objective}. ¿Aceptás?`)
-      opts.push({ l: 'Sí, acepto', action: `accept_mission:${missionId}` })
-      opts.push({ l: 'No puedo ahora', action: 'close' })
-  } else if (v.name === 'Tendero') {
-    // Merchant dialog
-    log('e', `TENDERO: ¡Bienvenido a mi tienda!`)
-    log('e', `TENDERO: Tienes ${st.p.gold} MC.`)
-    for (const item of SHOP_ITEMS) {
-      opts.push({ l: `${item.name} (${item.effect}) - ${item.price} MC`, action: `buy:${item.id}:${item.price}` })
-    }
-  } else {
+    if (!S.current) return
     log('e', `${v.name.toUpperCase()}: ¡Hola! Soy ${v.name}.`)
     if (v.items.length > 0) {
       log('e', `${v.name.toUpperCase()}: Tengo algo para vos...`)
-      opts.push({ l: `Recibir ${ITEMS[v.items[0]]?.icon || '?'}`, action: 'give_item' })
     } else {
       log('e', `${v.name.toUpperCase()}: Ten cuidado por ahí.`)
     }
+    const opts: { l: string; action?: string }[] = []
+    if (v.items.length > 0) {
+      opts.push({ l: `Recibir ${ITEMS[v.items[0]]?.icon || '?'}`, action: 'give_item' })
+    }
     opts.push({ l: 'Quédate en casa', action: 'stay_home' })
-  }
     opts.push({ l: 'Adiós', action: 'close' })
 
-    st.dlg = {
+    S.current.dlg = {
       active: true,
       speaker: v.name.toUpperCase(),
       lines: [],
@@ -709,18 +612,15 @@ export default function GamePage() {
   }, [])
 
   const selectDlgOpt = useCallback((opt: { l: string; action?: string }) => {
-    if (!S.current || !S.current.p) return
-    const st = S.current
-    const dlg = st.dlg
-    const p = st.p
-    
+    if (!S.current) return
+    const dlg = S.current.dlg
     if (opt.action === 'close') {
       dlg.active = false
     } else if (opt.action === 'give_item' && dlg.target) {
       const v = dlg.target
-      if (v.items.length > 0 && p.inv.length < 5) {
+      if (v.items.length > 0 && S.current.p && S.current.p.inv.length < 5) {
         const item = v.items.shift()!
-        p.inv.push(item)
+        S.current.p.inv.push(item)
         log('e', `${v.name} te da ${ITEMS[item]?.icon || item}.`)
         notify(`+${ITEMS[item]?.icon || item}`, '#c8a84b')
       }
@@ -730,59 +630,6 @@ export default function GamePage() {
       dlg.target.patrolIdx = 0
       dlg.target.patrol = [{ x: dlg.target.homeX, y: dlg.target.homeY }]
       log('i', `${dlg.target.name} se queda cerca de casa.`)
-      dlg.active = false
-    } else if (opt.action?.startsWith('accept_mission:')) {
-      const missionId = opt.action.replace('accept_mission:', '')
-      const missionDef = MISSION_DEFS[missionId]
-      if (missionDef) {
-        const newMission: Mission = {
-          id: missionId,
-          npc: missionDef.npc,
-          objective: missionDef.objective,
-          reward: missionDef.reward,
-          type: missionDef.type,
-          target: missionDef.target,
-          targetNpc: missionDef.targetNpc,
-          count: missionDef.count,
-          progress: 0,
-          completed: false,
-        }
-        st.missions.push(newMission)
-        st.activeMission = newMission
-        log('s', `Misión aceptada: ${missionDef.objective}`)
-        notify('NUEVA MISIÓN', '#5a8a3a')
-      }
-      dlg.active = false
-    } else if (opt.action === 'complete_mission' && st.activeMission) {
-      p.gold += st.activeMission.reward
-      log('e', `${dlg.target?.name || 'NPC'}: ¡Gracias! +${st.activeMission.reward} MC`)
-      notify(`+${st.activeMission.reward} MC`, '#c8a84b')
-      st.activeMission = null
-      dlg.active = false
-    } else if (opt.action === 'deliver_item' && st.activeMission && st.activeMission.target) {
-      const idx = p.inv.indexOf(st.activeMission.target)
-      if (idx >= 0) {
-        p.inv.splice(idx, 1)
-        st.activeMission.completed = true
-        log('e', `Entregaste ${st.activeMission.target}. ¡Vuelve con ${st.activeMission.npc}!`)
-        notify('ENTREGA COMPLETA', '#5a8a3a')
-      }
-      dlg.active = false
-    } else if (opt.action?.startsWith('buy:')) {
-      const parts = opt.action.split(':')
-      const itemId = parts[1]
-      const price = parseInt(parts[2])
-      if (p.gold >= price && p.inv.length < 5) {
-        p.gold -= price
-        p.inv.push(itemId)
-        log('s', `Compraste ${ITEMS[itemId]?.icon || itemId} (-${price} MC)`)
-        notify(`-${price} MC`, '#e24b4a')
-      } else if (p.gold < price) {
-        log('d', 'No tienes suficientes MC.')
-        notify('SIN FONDOS', '#e24b4a')
-      } else {
-        log('d', 'Inventario lleno.')
-      }
       dlg.active = false
     }
     forceUpdate(n => n + 1)
@@ -965,27 +812,11 @@ export default function GamePage() {
         if (naz.hp <= 0) {
           naz.state = 'dying'
           naz.deathFrame = 0
+          const goldDrop = 5 + naz.waveNum * 2
+          p.gold += goldDrop
+          S.current.fx.push({ x: naz.x, y: naz.y - 20, text: `+${goldDrop} MC`, color: '#c8a84b', vy: -1.2, life: 50 })
           log('e', '¡El Nazgûl cae!')
-        }
-      }
-    }
-
-    // Attack enemies (spiders, rats)
-    for (const enemy of S.current.enemies) {
-      if (enemy.state === 'dying' || enemy.invT > 0) continue
-      const dx = enemy.x - p.x, dy = enemy.y - p.y
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      let effectiveRange = p.range
-      if (p.char === 'aragorn') effectiveRange = p.range * 1.2
-      if (p.char === 'frodo') effectiveRange = 1.8
-      if (dist < effectiveRange * T) {
-        const dmg = p.char === 'frodo' ? 6 : p.dmg
-        enemy.hp -= dmg
-        enemy.invT = 10
-        S.current.fx.push({ x: enemy.x, y: enemy.y - 15, text: `-${dmg}`, color: '#e24b4a', vy: -1.1, life: 35 })
-        if (enemy.hp <= 0) {
-          enemy.state = 'dying'
-          enemy.deathFrame = 0
+          log('s', `+${goldDrop} MC obtenidos`)
         }
       }
     }
@@ -1075,7 +906,7 @@ export default function GamePage() {
         if (st.waveDelay === 60) {
           log('d', '¡Se acerca otra oleada!')
         }
-if (st.waveDelay === 0 && st.wave < 10) {
+        if (st.waveDelay === 0 && st.wave < 10) {
           st.wave++
           const count = st.wave
           for (let i = 0; i < count; i++) {
@@ -1499,137 +1330,14 @@ if (st.waveDelay === 0 && st.wave < 10) {
       return pt.life > 0
     })
 
-  st.groundMarks = st.groundMarks.filter(gm => {
-  gm.alpha -= 0.001
-  return gm.alpha > 0
-  })
-  
-  if (st.fade && st.fade.life > 0) {
-  st.fade.life--
-  }
+    st.groundMarks = st.groundMarks.filter(gm => {
+      gm.alpha -= 0.001
+      return gm.alpha > 0
+    })
 
-    // ============ ENEMY SPAWN & AI (v5) ============
-    // Initialize enemies array if not present (for existing game states)
-    if (!st.enemies) st.enemies = []
-    if (st.enemySpawnTimer === undefined) st.enemySpawnTimer = 180
-    
-    // Spawn enemies if below limit (max 5)
-    if (st.enemies.length < 5) {
-    st.enemySpawnTimer--
-    if (st.enemySpawnTimer <= 0) {
-      st.enemySpawnTimer = 300 + Math.floor(Math.random() * 300) // 5-10 seconds
-      const types: ('spider' | 'giant_rat')[] = ['spider', 'giant_rat']
-      const type = types[Math.floor(Math.random() * types.length)]
-      const def = ENEMY_DEFS[type]
-      // Random spawn location away from player
-      let ex = (10 + Math.random() * 80) * T
-      let ey = (10 + Math.random() * 60) * T
-      // Ensure not too close to player
-      const pdx = ex - p.x, pdy = ey - p.y
-      if (Math.sqrt(pdx * pdx + pdy * pdy) < 8 * T) {
-        ex = p.x + (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 5) * T
-        ey = p.y + (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 5) * T
-      }
-      ex = Math.max(2 * T, Math.min((WW - 2) * T, ex))
-      ey = Math.max(2 * T, Math.min((WH - 2) * T, ey))
-      st.enemies.push({
-        type,
-        x: ex,
-        y: ey,
-        hp: def.hp,
-        maxhp: def.hp,
-        spd: def.spd,
-        dmg: def.dmg,
-        dir: 'down',
-        frame: 0,
-        atkT: 0,
-        invT: 0,
-        state: 'wander',
-        deathFrame: 0,
-      })
+    if (st.fade && st.fade.life > 0) {
+      st.fade.life--
     }
-  }
-
-  // Enemy AI
-  for (const enemy of st.enemies) {
-    if (enemy.state === 'dying') {
-      enemy.deathFrame++
-      if (enemy.deathFrame >= 30) {
-        // Drop gold and items
-        const def = ENEMY_DEFS[enemy.type]
-        p.gold += def.goldDrop
-        st.fx.push({ x: enemy.x, y: enemy.y - 20, text: `+${def.goldDrop} MC`, color: '#c8a84b', vy: -1.2, life: 50 })
-        log('s', `+${def.goldDrop} MC obtenidos`)
-        // Random item drop
-        for (const drop of def.drops) {
-          if (Math.random() < drop.chance) {
-            st.droppedItems.push({ x: enemy.x, y: enemy.y, item: drop.item, bouncePhase: 0 })
-          }
-        }
-        // Update mission progress
-        if (st.activeMission && st.activeMission.type === 'kill' && st.activeMission.target === enemy.type) {
-          st.activeMission.progress++
-          if (st.activeMission.progress >= (st.activeMission.count || 1)) {
-            st.activeMission.completed = true
-            log('e', `¡Misión completada! Vuelve con ${st.activeMission.npc}.`)
-            notify('MISIÓN COMPLETA', '#c8a84b')
-          }
-        }
-      }
-      continue
-    }
-
-    if (enemy.atkT > 0) enemy.atkT--
-    if (enemy.invT > 0) enemy.invT--
-    enemy.frame++
-
-    // Check distance to player
-    const edx = p.x - enemy.x, edy = p.y - enemy.y
-    const eDist = Math.sqrt(edx * edx + edy * edy)
-
-    if (eDist < 6 * T && p.ringActive === 0) {
-      enemy.state = 'chase'
-    } else if (eDist > 10 * T) {
-      enemy.state = 'wander'
-    }
-
-    if (enemy.state === 'chase') {
-      // Move toward player
-      if (eDist > 0) {
-        const enx = enemy.x + (edx / eDist) * enemy.spd
-        const eny = enemy.y + (edy / eDist) * enemy.spd
-        if (!isSolid(enx, enemy.y)) enemy.x = enx
-        if (!isSolid(enemy.x, eny)) enemy.y = eny
-        if (Math.abs(edx) > Math.abs(edy)) {
-          enemy.dir = edx > 0 ? 'right' : 'left'
-        } else {
-          enemy.dir = edy > 0 ? 'down' : 'up'
-        }
-      }
-      // Attack if close
-      if (eDist < T * 0.8 && enemy.atkT === 0 && p.invT === 0 && p.ringActive === 0) {
-        if (!st.heroMode) p.hp -= enemy.dmg
-        p.invT = 40
-        enemy.atkT = 60
-        st.fx.push({ x: p.x, y: p.y - 20, text: st.heroMode ? 'INMUNE' : `-${enemy.dmg}`, color: st.heroMode ? '#c8a84b' : '#e24b4a', vy: -1.1, life: 40 })
-        if (!st.heroMode) log('d', `¡${enemy.type === 'spider' ? 'Araña' : 'Rata gigante'} te ataca! -${enemy.dmg} HP`)
-        if (p.hp <= 0 && !st.heroMode) p.deathFrame = 1
-      }
-    } else {
-      // Wander randomly
-      if (st.frameCount % 60 === 0) {
-        const angle = Math.random() * Math.PI * 2
-        const wx = enemy.x + Math.cos(angle) * enemy.spd * 20
-        const wy = enemy.y + Math.sin(angle) * enemy.spd * 20
-        if (!isSolid(wx, enemy.y) && wx > T && wx < (WW - 1) * T) enemy.x += (wx - enemy.x) * 0.1
-        if (!isSolid(enemy.x, wy) && wy > T && wy < (WH - 1) * T) enemy.y += (wy - enemy.y) * 0.1
-      }
-    }
-  }
-
-  // Remove dead enemies
-  st.enemies = st.enemies.filter(e => e.state !== 'dying' || e.deathFrame < 30)
-
   }, [isSolid, moveToward, createNazgul, log, notify])
 
   const drawSprite = useCallback((
@@ -1906,7 +1614,7 @@ if (st.waveDelay === 0 && st.wave < 10) {
       mctx.fillRect(mx - 1.5, my - 1.5, 3, 3)
     }
 
-const allNazForMap = [
+  const allNazForMap = [
       ...(st.nazgul && st.nazgul.hp > 0 ? [st.nazgul] : []),
       ...st.nazgulList.filter(n => n !== st.nazgul && n.hp > 0)
     ]
@@ -2025,88 +1733,6 @@ const allNazForMap = [
       ctx.fillStyle = v.state === 'flee' ? '#e08040' : '#8aaa6e'
       ctx.textAlign = 'center'
       ctx.fillText(v.name, vx, vy + 20)
-    }
-
-    // Draw enemies (spiders, rats)
-    for (const enemy of st.enemies) {
-      const ex = enemy.x - sx, ey = enemy.y - sy
-      
-      if (enemy.state === 'dying') {
-        ctx.globalAlpha = 1 - enemy.deathFrame / 30
-      } else if (enemy.invT > 0 && enemy.invT % 4 < 2) {
-        ctx.globalAlpha = 0.5
-      }
-      
-      ctx.save()
-      ctx.translate(ex, ey)
-      const flip = enemy.dir === 'left' ? -1 : 1
-      ctx.scale(flip, 1)
-      
-      if (enemy.type === 'spider') {
-        // Spider sprite
-        ctx.fillStyle = '#2a1a30'
-        ctx.beginPath()
-        ctx.ellipse(0, 0, 10, 8, 0, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.fillStyle = '#1a0a20'
-        ctx.beginPath()
-        ctx.ellipse(0, -8, 6, 5, 0, 0, Math.PI * 2)
-        ctx.fill()
-        // Eyes
-        ctx.fillStyle = '#ff4040'
-        ctx.fillRect(-4, -10, 2, 2)
-        ctx.fillRect(2, -10, 2, 2)
-        // Legs
-        ctx.strokeStyle = '#2a1a30'
-        ctx.lineWidth = 1.5
-        for (let i = 0; i < 4; i++) {
-          const legPhase = (enemy.frame * 0.2 + i * 0.5) % (Math.PI * 2)
-          const legX = (i - 1.5) * 4
-          ctx.beginPath()
-          ctx.moveTo(legX, 0)
-          ctx.lineTo(legX + 8 + Math.sin(legPhase) * 2, 6)
-          ctx.moveTo(legX, 0)
-          ctx.lineTo(legX - 8 - Math.sin(legPhase) * 2, 6)
-          ctx.stroke()
-        }
-      } else {
-        // Giant rat sprite
-        ctx.fillStyle = '#5a4030'
-        ctx.beginPath()
-        ctx.ellipse(0, 0, 12, 7, 0, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.fillStyle = '#4a3020'
-        ctx.beginPath()
-        ctx.ellipse(-10, -3, 5, 4, 0, 0, Math.PI * 2)
-        ctx.fill()
-        // Ears
-        ctx.fillStyle = '#6a5040'
-        ctx.beginPath()
-        ctx.ellipse(-12, -7, 3, 4, -0.3, 0, Math.PI * 2)
-        ctx.ellipse(-8, -7, 3, 4, 0.3, 0, Math.PI * 2)
-        ctx.fill()
-        // Eyes
-        ctx.fillStyle = '#ff6060'
-        ctx.fillRect(-12, -4, 2, 2)
-        // Tail
-        ctx.strokeStyle = '#5a4030'
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.moveTo(10, 0)
-        ctx.quadraticCurveTo(18, -5, 20, 5)
-        ctx.stroke()
-      }
-      
-      ctx.restore()
-      ctx.globalAlpha = 1
-      
-      // HP bar for enemies
-      if (enemy.state !== 'dying' && enemy.hp < enemy.maxhp) {
-        ctx.fillStyle = '#2a0a0a'
-        ctx.fillRect(ex - 12, ey - 18, 24, 4)
-        ctx.fillStyle = '#c82020'
-        ctx.fillRect(ex - 11, ey - 17, 22 * (enemy.hp / enemy.maxhp), 2)
-      }
     }
 
     const g = st.gandalfAlly
@@ -2497,27 +2123,18 @@ const allNazForMap = [
   return (
     <div
       ref={rootRef}
-      className="relative w-full bg-[#0a0804] overflow-hidden select-none"
+      className="relative w-full bg-[#0a0804] flex flex-col overflow-hidden select-none"
       style={{ touchAction: 'manipulation', height: '100dvh' }}
     >
-      {/* Canvas - Full screen background */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        style={{ imageRendering: 'pixelated' }}
-      />
-      <canvas ref={minimapRef} width={64} height={64} className="hidden" />
-
-      {/* TOP HUD - Overlay */}
       {screen === 'game' && S.current?.p && (
-        <div className="absolute top-0 left-0 right-0 px-2 pt-1 z-10" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 70%, transparent 100%)' }}>
+        <div className="flex-none px-2 pt-1 pb-0 z-10">
           <div className="flex items-start justify-between">
-            <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden" style={{ background: 'rgba(0,0,0,0.6)' }}>
-              <canvas ref={minimapRef} width={56} height={56} className="block" />
+            <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden bg-[rgba(0,0,0,0.5)]">
+              <canvas ref={minimapRef} width={64} height={64} className="block" />
             </div>
 
             <div className="text-right">
-              <div className="text-[#c8a84b] text-xs tracking-[1px] font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+              <div className="text-[#c8a84b] text-sm tracking-[1px] font-bold">
                 {S.current.gameMode === 'horde' && S.current.wave > 0 
                   ? `OLEADA ${S.current.wave}/10`
                   : CHARS[S.current.p.char].name
@@ -2527,44 +2144,37 @@ const allNazForMap = [
                 {Array.from({ length: S.current.p.maxhp }).map((_, i) => (
                   <div
                     key={i}
-                    className={`w-1.5 h-1.5 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
-                    style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
+                    className={`w-2 h-2 rounded-full ${i < S.current!.p!.hp ? 'bg-[#5a8a3a]' : 'bg-[#3a2a20]'}`}
                   />
                 ))}
               </div>
-              <div className="text-[#8aaa6e] text-[10px] mt-0.5 font-medium" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+              <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
               </div>
-              <div className="text-[#c8a84b] text-[10px] font-medium" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+              <div className="text-[#c8a84b] text-xs font-medium">
                 ◈ {S.current.p.gold} MC
               </div>
-              {S.current.activeMission && (
-                <div className="text-[#8aaa6e] text-[9px]" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
-                  ⬡ {S.current.activeMission.objective} {S.current.activeMission.type === 'kill' ? `${S.current.activeMission.progress}/${S.current.activeMission.count}` : ''}
-                </div>
-              )}
               {S.current.heroMode && (
-                <div className="text-[#c8a84b] text-[9px] animate-pulse">INMORTAL</div>
+                <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
               )}
               {S.current.p.ringActive > 0 && (
-                <div className="text-[#c8a84b] text-[9px] animate-pulse">INVISIBLE</div>
+                <div className="text-[#c8a84b] text-[10px] animate-pulse">INVISIBLE</div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* TERMINAL - Below top HUD, semi-transparent */}
       {screen === 'game' && S.current && (
         <div 
-          className="absolute left-2 right-2 rounded-lg border border-[rgba(42,58,26,0.5)] overflow-hidden flex flex-col z-10"
-          style={{ background: 'rgba(0,0,0,0.65)', top: '68px' }}
+          className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
+          style={{ background: '#0a0a0a', height: 'auto' }}
         >
           <div
             ref={logRef}
-            className="px-2 py-0.5"
+            className="px-2 py-1"
             style={{
-              height: '50px',
+              height: '66px',
               overflowY: 'auto',
               overflowX: 'hidden',
               scrollbarWidth: 'none',
@@ -2592,8 +2202,8 @@ const allNazForMap = [
             ))}
           </div>
 
-          <div className="flex-none flex items-center h-7 px-2 border-t border-[rgba(42,58,26,0.4)]" style={{ background: 'rgba(0,0,0,0.5)' }}>
-            <span className="text-[#5a6a3a] mr-1.5 text-xs">{'>'}</span>
+          <div className="flex-none flex items-center h-8 px-2 border-t border-[#2a3a1a]" style={{ background: '#0a0a0a' }}>
+            <span className="text-[#5a6a3a] mr-2 text-sm">{'>'}</span>
             <input
               ref={inputRef}
               type="text"
@@ -2602,9 +2212,9 @@ const allNazForMap = [
               onKeyDown={handleTermKeyDown}
               onFocus={() => { if (S.current) S.current.gamePaused = true }}
               onBlur={() => { if (S.current) S.current.gamePaused = false }}
-              placeholder="/mods..."
-              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a] text-xs"
-              style={{ fontSize: '14px' }}
+              placeholder="/mods o escribe aquí..."
+              className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a]"
+              style={{ fontSize: '16px' }}
             />
           </div>
 
@@ -2645,12 +2255,21 @@ const allNazForMap = [
         </div>
       )}
 
-      {/* BOTTOM CONTROLS - Overlay with gradient */}
+      <div className="flex-1 relative flex items-center justify-center">
+        <canvas
+          ref={canvasRef}
+          className="block w-full h-full"
+          style={{ imageRendering: 'pixelated' }}
+        />
+
+        {screen !== 'game' && (
+          <canvas ref={minimapRef} width={64} height={64} className="hidden" />
+        )}
+      </div>
+
       {screen === 'game' && S.current && (
-        <div 
-          className="absolute bottom-0 left-0 right-0 px-2 pb-2 pt-3 flex items-end justify-between gap-2 z-10"
-          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.4) 70%, transparent 100%)' }}
-        >
+        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
+
           {invPanelOpen && S.current?.p && (
             <div
               className="absolute bottom-full right-3 mb-1 w-[200px] rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
@@ -2682,36 +2301,35 @@ const allNazForMap = [
 
           <div
             ref={joystickRef}
-            className="rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ width: 70, height: 70, touchAction: 'none', background: 'rgba(200,168,75,0.1)', border: '2px solid rgba(200,168,75,0.25)' }}
+            className="rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0"
+            style={{ width: 90, height: 90, touchAction: 'none', opacity: 0.85 }}
             onPointerDown={handleJoystickPointerDown}
             onPointerMove={handleJoystickPointerMove}
             onPointerUp={handleJoystickPointerUp}
             onPointerCancel={handleJoystickPointerUp}
           >
             <div
-              className="w-7 h-7 rounded-full"
-              style={{ transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`, pointerEvents: 'none', background: 'rgba(200,168,75,0.35)', border: '1px solid rgba(200,168,75,0.6)' }}
+              className="w-10 h-10 rounded-full bg-[rgba(200,168,75,0.25)] border border-[rgba(200,168,75,0.5)]"
+              style={{ transform: `translate(${thumbPos.x}px, ${thumbPos.y}px)`, pointerEvents: 'none' }}
             />
           </div>
 
-          <div className="flex flex-col gap-1.5 items-end">
-            {/* Primary row: Attack, Defend, Ring */}
-            <div className="flex gap-1.5 items-center">
+          <div className="flex flex-col gap-2 items-end">
+            <div className="flex gap-2 items-center">
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); doAttack() }}
                 onClick={(e) => { e.preventDefault(); doAttack() }}
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-xl active:scale-95 transition-all"
-                style={{ background: 'rgba(106,26,26,0.85)', border: '2px solid #8a2a2a' }}
+                className="w-16 h-16 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all"
+                title="Atacar"
               >
                 {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
               </button>
 
               <button
-                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Defensa!'); notify('DEFENSA', '#5a8a3a') } }}
-                onClick={(e) => { e.preventDefault(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Defensa!'); notify('DEFENSA', '#5a8a3a') } }}
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-xl active:scale-95 transition-all"
-                style={{ background: 'rgba(26,48,64,0.85)', border: '2px solid #2a4a5a' }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
+                onClick={(e) => { e.preventDefault(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
+                className="w-16 h-16 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all"
+                title="Defender"
               >
                 🛡️
               </button>
@@ -2720,46 +2338,45 @@ const allNazForMap = [
                 <button
                   onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); useRing() }}
                   onClick={(e) => { e.preventDefault(); useRing() }}
-                  className="w-12 h-12 rounded-xl flex items-center justify-center text-xl active:scale-95 transition-all animate-pulse"
-                  style={{ background: 'rgba(42,32,16,0.85)', border: '2px solid #c8a84b' }}
+                  className="w-16 h-16 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all animate-pulse"
+                  title="Usar Anillo"
                 >
                   💍
                 </button>
               )}
             </div>
 
-            {/* Secondary row: Items */}
-            <div className="flex gap-1.5 items-center">
+            <div className="flex gap-2 items-center">
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const idx = S.current?.p?.inv.indexOf('miruvor') ?? -1; if (idx >= 0) useItem(idx) }}
                 onClick={(e) => { e.preventDefault(); const idx = S.current?.p?.inv.indexOf('miruvor') ?? -1; if (idx >= 0) useItem(idx) }}
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm active:scale-95 transition-all"
-                style={{ background: 'rgba(26,48,32,0.8)', border: '1px solid #2a4a30' }}
+                className="w-12 h-12 rounded-xl bg-[#1a3020] border-2 border-[#2a4a30] flex items-center justify-center text-lg active:bg-[#2a4030] active:scale-95 transition-all"
+                title="Poción"
               >🧴</button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const idx = S.current?.p?.inv.indexOf('lembas') ?? -1; if (idx >= 0) useItem(idx) }}
                 onClick={(e) => { e.preventDefault(); const idx = S.current?.p?.inv.indexOf('lembas') ?? -1; if (idx >= 0) useItem(idx) }}
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm active:scale-95 transition-all"
-                style={{ background: 'rgba(42,32,16,0.8)', border: '1px solid #4a3a20' }}
+                className="w-12 h-12 rounded-xl bg-[#2a2010] border-2 border-[#4a3a20] flex items-center justify-center text-lg active:bg-[#3a3020] active:scale-95 transition-all"
+                title="Lembas"
               >🍞</button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); tryInteract() }}
                 onClick={(e) => { e.preventDefault(); tryInteract() }}
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm active:scale-95 transition-all"
-                style={{ background: 'rgba(16,32,48,0.8)', border: '1px solid #2a3a4a' }}
+                className="w-12 h-12 rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center text-lg active:bg-[#1a2a3a] active:scale-95 transition-all"
+                title="Hablar"
               >💬</button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); setInvPanelOpen(v => !v) }}
                 onClick={(e) => { e.preventDefault(); setInvPanelOpen(v => !v) }}
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm active:scale-95 transition-all relative"
-                style={{ background: 'rgba(26,26,42,0.8)', border: '1px solid #2a2a4a' }}
+                className="w-12 h-12 rounded-xl bg-[#1a1a2a] border-2 border-[#2a2a4a] flex items-center justify-center text-lg active:bg-[#2a2a3a] active:scale-95 transition-all"
+                title="Inventario"
               >
                 🎒
                 {(S.current.p?.inv.length ?? 0) > 0 && (
-                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#c8a84b] text-[#1a1408] text-[8px] font-bold flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#c8a84b] text-[#1a1408] text-[9px] font-bold flex items-center justify-center">
                     {S.current.p?.inv.length}
                   </span>
                 )}
