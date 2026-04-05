@@ -2021,12 +2021,20 @@ export default function GamePage() {
         const parent = canvasRef.current.parentElement
         if (parent) {
           canvasRef.current.width = parent.clientWidth
-          canvasRef.current.height = parent.clientHeight
+          const rootEl = parent.parentElement
+          if (rootEl) {
+            const siblings = Array.from(rootEl.children).filter(el => el !== parent)
+            const siblingHeight = siblings.reduce((sum, el) => sum + (el as HTMLElement).offsetHeight, 0)
+            canvasRef.current.height = Math.max(200, rootEl.clientHeight - siblingHeight)
+          } else {
+            canvasRef.current.height = parent.clientHeight
+          }
         }
       }
       setIsCompact(window.innerHeight < 700)
     }
 
+    setTimeout(handleResize, 50)
     handleResize()
     window.addEventListener('resize', handleResize)
     window.addEventListener('orientationchange', () => setTimeout(handleResize, 100))
