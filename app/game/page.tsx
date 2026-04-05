@@ -2146,11 +2146,8 @@ export default function GamePage() {
   useEffect(() => {
     const handleResize = () => {
       if (canvasRef.current) {
-        const parent = canvasRef.current.parentElement
-        if (parent) {
-          canvasRef.current.width = parent.clientWidth
-          canvasRef.current.height = parent.clientHeight
-        }
+        canvasRef.current.width = window.innerWidth
+        canvasRef.current.height = window.innerHeight
       }
       setIsCompact(window.innerHeight < 700)
     }
@@ -2272,11 +2269,11 @@ export default function GamePage() {
   return (
     <div
       ref={rootRef}
-      className="relative w-full bg-[#0a0804] flex flex-col overflow-hidden select-none"
+      className="relative w-full bg-[#0a0804] overflow-hidden select-none"
       style={{ touchAction: 'manipulation', height: '100dvh' }}
     >
       {screen === 'game' && S.current?.p && (
-        <div className="flex-none px-2 pt-1 pb-0 z-10">
+        <div className="absolute top-0 left-0 right-0 px-2 pt-1 pb-1 z-10" style={{ background: 'linear-gradient(to bottom, rgba(10,8,4,0.85) 80%, transparent)' }}>
           <div className="flex items-start justify-between">
             <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden bg-[rgba(0,0,0,0.5)]">
               <canvas ref={minimapRef} width={64} height={64} className="block" />
@@ -2324,8 +2321,8 @@ export default function GamePage() {
 
       {screen === 'game' && S.current && (
         <div 
-          className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
-          style={{ background: '#0a0a0a', height: 'auto' }}
+          className="absolute left-2 right-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
+          style={{ background: 'rgba(10,10,10,0.85)', top: '86px' }}
         >
           <div
             ref={logRef}
@@ -2412,7 +2409,7 @@ export default function GamePage() {
         </div>
       )}
 
-      <div className="flex-1 relative">
+      <div className="absolute inset-0">
         <canvas
           ref={canvasRef}
           className="block w-full h-full"
@@ -2425,7 +2422,7 @@ export default function GamePage() {
       </div>
 
       {screen === 'game' && S.current && (
-        <div className="flex-none px-2 pb-2 pt-1 flex items-end justify-between gap-2 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
+        <div className="absolute bottom-0 left-0 right-0 px-2 pb-2 pt-2 flex items-end justify-between gap-2 z-10" style={{ background: 'linear-gradient(to top, rgba(10,8,4,0.92) 70%, transparent)' }}>
 
           {invPanelOpen && S.current?.p && (
             <div
