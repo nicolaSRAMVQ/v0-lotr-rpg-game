@@ -2159,9 +2159,6 @@ export default function GamePage() {
               <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
               </div>
-              <div className="text-[#c8a84b] text-xs font-medium">
-                ◈ {S.current.p.gold} MC
-              </div>
               {S.current.heroMode && (
                 <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
               )}
@@ -2263,11 +2260,11 @@ export default function GamePage() {
         </div>
       )}
 
-      <div className="flex-1 relative flex items-center justify-center">
+      <div className="flex-1 relative">
         <canvas
           ref={canvasRef}
-          className="block w-full h-full"
-          style={{ imageRendering: 'pixelated' }}
+          className="block"
+          style={{ imageRendering: 'pixelated', display: 'block' }}
         />
 
         {screen !== 'game' && (
