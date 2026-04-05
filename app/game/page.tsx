@@ -2182,7 +2182,7 @@ export default function GamePage() {
             ref={logRef}
             className="px-2 py-1"
             style={{
-              height: '66px',
+              height: '44px',
               overflowY: 'auto',
               overflowX: 'hidden',
               scrollbarWidth: 'none',
@@ -2276,7 +2276,7 @@ export default function GamePage() {
       </div>
 
       {screen === 'game' && S.current && (
-        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
+        <div className="flex-none px-2 pb-2 pt-1 flex items-end justify-between gap-2 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
 
           {invPanelOpen && S.current?.p && (
             <div
@@ -2310,7 +2310,7 @@ export default function GamePage() {
           <div
             ref={joystickRef}
             className="rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0"
-            style={{ width: 90, height: 90, touchAction: 'none', opacity: 0.85 }}
+            style={{ width: 80, height: 80, touchAction: 'none', opacity: 0.85 }}
             onPointerDown={handleJoystickPointerDown}
             onPointerMove={handleJoystickPointerMove}
             onPointerUp={handleJoystickPointerUp}
@@ -2327,7 +2327,7 @@ export default function GamePage() {
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); doAttack() }}
                 onClick={(e) => { e.preventDefault(); doAttack() }}
-                className="w-16 h-16 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all"
+                className="w-14 h-14 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all"
                 title="Atacar"
               >
                 {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
@@ -2336,7 +2336,7 @@ export default function GamePage() {
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
                 onClick={(e) => { e.preventDefault(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
-                className="w-16 h-16 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all"
+                className="w-14 h-14 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all"
                 title="Defender"
               >
                 🛡️
@@ -2346,7 +2346,7 @@ export default function GamePage() {
                 <button
                   onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); useRing() }}
                   onClick={(e) => { e.preventDefault(); useRing() }}
-                  className="w-16 h-16 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all animate-pulse"
+                  className="w-14 h-14 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all animate-pulse"
                   title="Usar Anillo"
                 >
                   💍
