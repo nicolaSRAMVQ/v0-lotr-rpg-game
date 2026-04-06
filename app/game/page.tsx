@@ -564,26 +564,6 @@ export default function GamePage() {
     }) || null
   }, [])
 
-  const pickupNearbyItem = useCallback(() => {
-    if (!S.current?.p) return
-    const nearby = getNearbyItem()
-    if (!nearby) { tryInteract(); return }
-    const idx = S.current.droppedItems.indexOf(nearby)
-    if (idx < 0) return
-    if (nearby.item === 'gold') {
-      const amt = nearby.amount || 5
-      S.current.p.gold += amt
-      log('s', `Recoges 💰 ${amt} MC. Total: ${S.current.p.gold} MC`)
-      notify(`+💰 ${amt} MC`, '#c8a84b')
-    } else {
-      S.current.p.inv.push(nearby.item)
-      log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`)
-      notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b')
-    }
-    S.current.droppedItems.splice(idx, 1)
-    forceUpdate(n => n + 1)
-  }, [getNearbyItem, tryInteract, log, notify])
-
   const getTermContext = useCallback((): TermContext => {
     if (!S.current || !S.current.p) return 'exploration'
     if (S.current.dlg.active) return 'dialog'
@@ -1158,6 +1138,26 @@ export default function GamePage() {
       }
     }
   }, [openGandalfDlg, openVillagerDlg])
+
+  const pickupNearbyItem = useCallback(() => {
+    if (!S.current?.p) return
+    const nearby = getNearbyItem()
+    if (!nearby) { tryInteract(); return }
+    const idx = S.current.droppedItems.indexOf(nearby)
+    if (idx < 0) return
+    if (nearby.item === 'gold') {
+      const amt = nearby.amount || 5
+      S.current.p.gold += amt
+      log('s', `Recoges 💰 ${amt} MC. Total: ${S.current.p.gold} MC`)
+      notify(`+💰 ${amt} MC`, '#c8a84b')
+    } else {
+      S.current.p.inv.push(nearby.item)
+      log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`)
+      notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b')
+    }
+    S.current.droppedItems.splice(idx, 1)
+    forceUpdate(n => n + 1)
+  }, [getNearbyItem, tryInteract, log, notify])
 
   const moveToward = useCallback((entity: { x: number; y: number; dir: Dir }, tx: number, ty: number, spd: number) => {
     const dx = tx - entity.x, dy = ty - entity.y
