@@ -2537,8 +2537,6 @@ export default function GamePage() {
     ? MOD_COMMANDS.filter(m => m.cmd.startsWith(S.current!.termInput))
     : MOD_COMMANDS
 
-  const [invPanelOpen, setInvPanelOpen] = useState(false)
-
   return (
     <div
       ref={rootRef}
