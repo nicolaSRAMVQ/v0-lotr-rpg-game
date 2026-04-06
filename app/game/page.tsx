@@ -564,6 +564,26 @@ export default function GamePage() {
     }) || null
   }, [])
 
+  const pickupNearbyItem = useCallback(() => {
+    if (!S.current?.p) return
+    const nearby = getNearbyItem()
+    if (!nearby) { tryInteract(); return }
+    const idx = S.current.droppedItems.indexOf(nearby)
+    if (idx < 0) return
+    if (nearby.item === 'gold') {
+      const amt = nearby.amount || 5
+      S.current.p.gold += amt
+      log('s', `Recoges 💰 ${amt} MC. Total: ${S.current.p.gold} MC`)
+      notify(`+💰 ${amt} MC`, '#c8a84b')
+    } else {
+      S.current.p.inv.push(nearby.item)
+      log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`)
+      notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b')
+    }
+    S.current.droppedItems.splice(idx, 1)
+    forceUpdate(n => n + 1)
+  }, [getNearbyItem, tryInteract, log, notify])
+
   const getTermContext = useCallback((): TermContext => {
     if (!S.current || !S.current.p) return 'exploration'
     if (S.current.dlg.active) return 'dialog'
@@ -964,10 +984,33 @@ export default function GamePage() {
             })
           }
 
-          if (naz.hp <= 0) {
-            naz.state = 'dying'
-            naz.deathFrame = 0
+        if (naz.hp <= 0) {
+          naz.state = 'dying'
+          naz.deathFrame = 0
+          const goldDrop = 5 + naz.waveNum * 2
+          // Gold droppea al piso — el jugador lo tiene que agarrar
+          S.current.droppedItems.push({
+            x: naz.x + (Math.random() - 0.5) * T,
+            y: naz.y + (Math.random() - 0.5) * T,
+            item: 'gold',
+            bouncePhase: 0,
+            amount: goldDrop,
+          })
+          // Drop de item aleatorio ocasional
+          if (Math.random() < 0.4) {
+            const drops = ['lembas', 'miruvor', 'espada_rota']
+            const drop = drops[Math.floor(Math.random() * drops.length)]
+            S.current.droppedItems.push({
+              x: naz.x + (Math.random() - 0.5) * T * 2,
+              y: naz.y + (Math.random() - 0.5) * T * 2,
+              item: drop,
+              bouncePhase: Math.random() * Math.PI,
+            })
           }
+          S.current.fx.push({ x: naz.x, y: naz.y - 20, text: `💰 ${goldDrop}`, color: '#c8a84b', vy: -1.2, life: 50 })
+          log('e', '¡El Nazgûl cae!')
+          log('s', `💰 ${goldDrop} MC en el piso — ¡recógelos!`)
+        }
           return
         }
       }
@@ -1115,26 +1158,6 @@ export default function GamePage() {
       }
     }
   }, [openGandalfDlg, openVillagerDlg])
-
-  const pickupNearbyItem = useCallback(() => {
-    if (!S.current?.p) return
-    const nearby = getNearbyItem()
-    if (!nearby) { tryInteract(); return }
-    const idx = S.current.droppedItems.indexOf(nearby)
-    if (idx < 0) return
-    if (nearby.item === 'gold') {
-      const amt = nearby.amount || 5
-      S.current.p.gold += amt
-      log('s', `Recoges 💰 ${amt} MC. Total: ${S.current.p.gold} MC`)
-      notify(`+💰 ${amt} MC`, '#c8a84b')
-    } else {
-      S.current.p.inv.push(nearby.item)
-      log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`)
-      notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b')
-    }
-    S.current.droppedItems.splice(idx, 1)
-    forceUpdate(n => n + 1)
-  }, [getNearbyItem, tryInteract, log, notify])
 
   const moveToward = useCallback((entity: { x: number; y: number; dir: Dir }, tx: number, ty: number, spd: number) => {
     const dx = tx - entity.x, dy = ty - entity.y
@@ -1373,6 +1396,27 @@ export default function GamePage() {
             if (target.hp <= 0) {
               target.state = 'dying'
               target.deathFrame = 0
+              // Gandalf dropea loot al piso — igual que el jugador, pero él no lo agarra
+              const goldDrop = 5 + target.waveNum * 2
+              S.current.droppedItems.push({
+                x: target.x + (Math.random() - 0.5) * T,
+                y: target.y + (Math.random() - 0.5) * T,
+                item: 'gold',
+                bouncePhase: 0,
+                amount: goldDrop,
+              })
+              if (Math.random() < 0.4) {
+                const drops = ['lembas', 'miruvor', 'espada_rota']
+                const drop = drops[Math.floor(Math.random() * drops.length)]
+                S.current.droppedItems.push({
+                  x: target.x + (Math.random() - 0.5) * T * 2,
+                  y: target.y + (Math.random() - 0.5) * T * 2,
+                  item: drop,
+                  bouncePhase: Math.random() * Math.PI,
+                })
+              }
+              S.current.fx.push({ x: target.x, y: target.y - 20, text: `💰 ${goldDrop}`, color: '#c8a84b', vy: -1.2, life: 50 })
+              log('s', `💰 ${goldDrop} MC en el piso — ¡ve a buscarlo!`)
             }
 
             log('e', '✦ ¡No tocarás a mi compañero! ✦')
@@ -2632,6 +2676,9 @@ export default function GamePage() {
               </div>
               <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
+              </div>
+              <div className="text-[#c8a84b] text-xs font-medium">
+                💰 {S.current.p.gold} MC
               </div>
               <div className="text-[#c8a84b] text-xs font-medium">
                 💰 {S.current.p.gold} MC
