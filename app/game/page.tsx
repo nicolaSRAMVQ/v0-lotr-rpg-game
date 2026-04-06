@@ -12,9 +12,19 @@ const CHARS: Record<string, { name: string; spd: number; maxhp: number; dmg: num
   frodo: { name: 'FRODO', spd: 2.8, maxhp: 6, dmg: 6, range: 2.4, startItems: ['anillo', 'lembas'] },
   aragorn: { name: 'ARAGORN', spd: 2.5, maxhp: 10, dmg: 10, range: 2.4, startItems: ['espada'] },
   gandalf: { name: 'GANDALF', spd: 2.0, maxhp: 8, dmg: 12, range: 3.5, startItems: ['baston', 'miruvor'] },
+  legolas: { name: 'LEGOLAS', spd: 3.2, maxhp: 6, dmg: 8, range: 5.0, startItems: ['arco', 'lembas'] },
+  gimli: { name: 'GIMLI', spd: 1.8, maxhp: 14, dmg: 15, range: 1.6, startItems: ['hacha', 'miruvor'] },
 }
 
 // ============ ITEMS ============
+const WEAPONS: Record<string, { main: { icon: string; label: string; dmgMult: number; rangeMult: number }; secondary: { icon: string; label: string; dmgMult: number; rangeMult: number } }> = {
+  frodo:   { main: { icon: '🗡️', label: 'Sting',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🧥', label: 'Capa',     dmgMult: 0.5, rangeMult: 0.8 } },
+  aragorn: { main: { icon: '⚔️', label: 'Andúril',  dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🏹', label: 'Arco',     dmgMult: 0.8, rangeMult: 2.0 } },
+  gandalf: { main: { icon: '✦',  label: 'Bastón',   dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🌟', label: 'Cayado',   dmgMult: 1.5, rangeMult: 0.6 } },
+  legolas: { main: { icon: '🏹', label: 'Arco',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🗡️', label: 'Cuchillos',dmgMult: 0.8, rangeMult: 0.4 } },
+  gimli:   { main: { icon: '🪓', label: 'Hacha',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🛡️', label: 'Escudo',   dmgMult: 0.3, rangeMult: 0.5 } },
+}
+
 const ITEMS: Record<string, { icon: string; desc: string }> = {
   lembas: { icon: '🍞', desc: 'Pan élfico. Restaura 3 HP.' },
   anillo: { icon: '💍', desc: 'El Anillo Único. Invisibilidad temporal.' },
@@ -22,6 +32,8 @@ const ITEMS: Record<string, { icon: string; desc: string }> = {
   baston: { icon: '🪄', desc: 'Bastón de mago. Área de ataque.' },
   miruvor: { icon: '🧴', desc: 'Cordial élfico. Restaura HP completo.' },
   espada_rota: { icon: '🗡️', desc: 'Espada rota. Daño reducido.' },
+  arco: { icon: '🏹', desc: 'Arco élfico. Ataque a distancia.' },
+  hacha: { icon: '🪓', desc: 'Hacha enana. Daño demoledor.' },
 }
 
 // ============ VILLAGER DEFINITIONS ============
@@ -151,6 +163,9 @@ interface Player {
   daggerAngle: number
   staffRayAnim: number
   staffRayTarget: { x: number; y: number } | null
+  xp: number
+  level: number
+  weaponSlot: 'main' | 'secondary'
 }
 
 interface FX {
@@ -216,6 +231,9 @@ interface GameState {
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
+
+const XP_TABLE = [0, 50, 120, 220, 360, 550, 800, 1120, 1520, 2020]
+const XP_REWARDS = { nazgul: 30, villager_saved: 10 }
 
 export default function GamePage() {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -421,6 +439,9 @@ export default function GamePage() {
         daggerAngle: 0,
         staffRayAnim: 0,
         staffRayTarget: null,
+        xp: 0,
+        level: 1,
+        weaponSlot: 'main',
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -476,6 +497,15 @@ export default function GamePage() {
     S.current = null
     setSelectedChar(null)
     setScreen('charsel')
+  }, [])
+
+  const getNearbyItem = useCallback(() => {
+    if (!S.current?.p) return null
+    const p = S.current.p
+    return S.current.droppedItems.find(di => {
+      const dx = di.x - p.x, dy = di.y - p.y
+      return Math.sqrt(dx*dx + dy*dy) < T * 2
+    }) || null
   }, [])
 
   const getTermContext = useCallback((): TermContext => {
@@ -682,12 +712,39 @@ export default function GamePage() {
     }
   }, [useItem])
 
+  const doSwapWeapon = useCallback(() => {
+    if (!S.current?.p) return
+    const p = S.current.p
+    p.weaponSlot = p.weaponSlot === 'main' ? 'secondary' : 'main'
+    const w = WEAPONS[p.char]?.[p.weaponSlot]
+    if (w) notify(`${w.icon} ${w.label}`, '#c8a84b')
+    forceUpdate(n => n + 1)
+  }, [])
+
   const doAttack = useCallback(() => {
     if (!S.current || !S.current.p || S.current.dlg.active) return
     const p = S.current.p
     if (p.atkCd > 0) return
+    const activeWeapon = WEAPONS[p.char]?.[p.weaponSlot]
+    const weaponDmgMult = activeWeapon?.dmgMult ?? 1
+    const weaponRangeMult = activeWeapon?.rangeMult ?? 1
 
     const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
+    if (p.char === 'frodo' && p.weaponSlot === 'secondary') {
+      p.atkCd = 120
+      p.ringActive = 180
+      p.ringShimmer = 180
+      log('s', 'La capa te hace invisible brevemente.')
+      notify('🧥 INVISIBLE', '#8aaa6e')
+      return
+    }
+    if (p.char === 'gimli' && p.weaponSlot === 'secondary') {
+      p.atkCd = 20
+      p.invT = Math.max(p.invT, 90)
+      log('s', 'El escudo bloquea el golpe.')
+      notify('🛡️ BLOQUEO', '#5a8a3a')
+      return
+    }
 
     if (p.char === 'aragorn') {
       p.atkCd = 28
@@ -784,6 +841,41 @@ export default function GamePage() {
       return
     }
 
+    // Legolas: disparo de flecha a distancia con partículas doradas
+    if (p.char === 'legolas') {
+      p.atkCd = 35
+      p.daggerAnim = 12
+      p.daggerAngle = dirAngles[p.dir]
+      for (let i = 0; i < 5; i++) {
+        const angle = p.daggerAngle + (Math.random() - 0.5) * 0.2
+        S.current.parts.push({
+          x: p.x + Math.cos(angle) * T,
+          y: p.y + Math.sin(angle) * T,
+          vx: Math.cos(angle) * 4,
+          vy: Math.sin(angle) * 4,
+          color: '#d4a820',
+          life: 10, maxLife: 10,
+        })
+      }
+    }
+    // Gimli: golpe de hacha en área pequeña, más daño
+    if (p.char === 'gimli') {
+      p.atkCd = 40
+      p.sweepAnim = 18
+      p.sweepAngle = dirAngles[p.dir]
+      for (let i = 0; i < 8; i++) {
+        const angle = p.sweepAngle - Math.PI / 4 + (Math.PI / 2) * (i / 8)
+        S.current.parts.push({
+          x: p.x + Math.cos(angle) * T * 1.6,
+          y: p.y + Math.sin(angle) * T * 1.6,
+          vx: Math.cos(angle) * 2,
+          vy: Math.sin(angle) * 2,
+          color: '#9a9aaa',
+          life: 14, maxLife: 14,
+        })
+      }
+    }
+
     const allNaz = S.current.nazgul ? [S.current.nazgul, ...S.current.nazgulList.filter(n => n !== S.current!.nazgul)] : S.current.nazgulList
 
     for (const naz of allNaz) {
@@ -791,12 +883,15 @@ export default function GamePage() {
       const dx = naz.x - p.x, dy = naz.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
 
-      let effectiveRange = p.range
-      if (p.char === 'aragorn') effectiveRange = p.range * 1.2
-      if (p.char === 'frodo') effectiveRange = 1.8
+      let effectiveRange = p.range * weaponRangeMult
+      if (p.char === 'aragorn' && p.weaponSlot === 'main') effectiveRange = p.range * 1.2
+      if (p.char === 'frodo' && p.weaponSlot === 'main') effectiveRange = 1.8
+      if (p.char === 'legolas') effectiveRange = p.weaponSlot === 'main' ? 5.0 : 1.8
+      if (p.char === 'gimli') effectiveRange = p.weaponSlot === 'main' ? 1.6 : 1.2
 
       if (dist < effectiveRange * T) {
-        const dmg = p.char === 'frodo' ? 6 : p.dmg
+        const baseDmg = p.char === 'frodo' ? 6 : p.char === 'gimli' ? p.dmg + 3 : p.dmg
+        const dmg = Math.max(1, Math.round(baseDmg * weaponDmgMult))
         naz.hp -= dmg
         naz.invT = 10
         S.current.fx.push({
@@ -956,7 +1051,7 @@ export default function GamePage() {
       di.bouncePhase += 0.1
       const pdx = di.x - p.x, pdy = di.y - p.y
       const pdist = Math.sqrt(pdx * pdx + pdy * pdy)
-      if (pdist < T && p.inv.length < 5) {
+      if (pdist < T * 1.5) {
         p.inv.push(di.item)
         log('s', `Recoges ${ITEMS[di.item]?.icon || di.item}`)
         notify(`+${ITEMS[di.item]?.icon || '?'}`, '#c8a84b')
@@ -1123,6 +1218,18 @@ export default function GamePage() {
         }
         if (naz.deathFrame === 80) {
           st.groundMarks.push({ x: naz.x, y: naz.y, alpha: 0.6 })
+          if (st.p) {
+            st.p.xp += XP_REWARDS.nazgul
+            const nextLvl = st.p.level
+            if (nextLvl < XP_TABLE.length && st.p.xp >= XP_TABLE[nextLvl]) {
+              st.p.level++
+              st.p.maxhp += 1
+              st.p.hp = Math.min(st.p.hp + 1, st.p.maxhp)
+              st.p.dmg += 1
+              log('e', `¡NIVEL ${st.p.level}! +1 HP máx, +1 DMG`)
+              notify(`⭐ NIVEL ${st.p.level}`, '#c8a84b')
+            }
+          }
           const drops = ['lembas', 'miruvor']
           const numDrops = 1 + Math.floor(Math.random() * 2)
           for (let i = 0; i < numDrops; i++) {
@@ -1467,6 +1574,70 @@ export default function GamePage() {
       ctx.fillStyle = 'rgba(20,0,40,0.4)'
       ctx.fillRect(-10 * sc, -5 * sc, 4 * sc, 8 * sc)
       ctx.fillRect(6 * sc, -5 * sc, 4 * sc, 8 * sc)
+    } else if (char === 'legolas') {
+      // Capa verde élfica
+      ctx.fillStyle = '#3a5820'
+      ctx.fillRect(-5 * sc, -8 * sc, 10 * sc, 11 * sc)
+      ctx.fillStyle = '#2a4010'
+      ctx.fillRect(-3 * sc, 3 * sc, 3 * sc, 5 * sc + legAnim * sc)
+      ctx.fillRect(0, 3 * sc, 3 * sc, 5 * sc - legAnim * sc)
+      // Piel clara élfica
+      ctx.fillStyle = '#e8d0a0'
+      ctx.fillRect(-3 * sc, -16 * sc, 6 * sc, 8 * sc)
+      // Pelo dorado largo
+      ctx.fillStyle = '#d4a820'
+      ctx.fillRect(-4 * sc, -17 * sc, 8 * sc, 3 * sc)
+      ctx.fillRect(-4 * sc, -14 * sc, 2 * sc, 8 * sc)
+      ctx.fillRect(2 * sc, -14 * sc, 2 * sc, 8 * sc)
+      // Arco
+      ctx.strokeStyle = '#6a4010'
+      ctx.lineWidth = 1.5 * sc
+      ctx.beginPath()
+      ctx.arc(8 * sc, -8 * sc, 10 * sc, -0.8, 0.8)
+      ctx.stroke()
+      ctx.strokeStyle = '#c8c870'
+      ctx.lineWidth = 0.8 * sc
+      ctx.beginPath()
+      ctx.moveTo(8 * sc, -17 * sc)
+      ctx.lineTo(8 * sc, 1 * sc)
+      ctx.stroke()
+      // Ojos
+      ctx.fillStyle = '#1a2808'
+      if (dir === 'down' || dir === 'left' || dir === 'right') {
+        ctx.fillRect(-1.5 * sc, -12 * sc, 1.5 * sc, 1.5 * sc)
+        ctx.fillRect(1 * sc, -12 * sc, 1.5 * sc, 1.5 * sc)
+      }
+    } else if (char === 'gimli') {
+      // Armadura enana marrón/gris
+      ctx.fillStyle = '#5a4020'
+      ctx.fillRect(-7 * sc, -6 * sc, 14 * sc, 13 * sc)
+      ctx.fillStyle = '#7a6030'
+      ctx.fillRect(-5 * sc, -4 * sc, 10 * sc, 7 * sc)
+      // Piernas cortas y anchas
+      ctx.fillStyle = '#4a3018'
+      ctx.fillRect(-4 * sc, 6 * sc, 4 * sc, 5 * sc + legAnim * sc)
+      ctx.fillRect(0, 6 * sc, 4 * sc, 5 * sc - legAnim * sc)
+      // Cabeza + barba
+      ctx.fillStyle = '#c08040'
+      ctx.fillRect(-4 * sc, -14 * sc, 8 * sc, 8 * sc)
+      ctx.fillStyle = '#8a5020'
+      ctx.fillRect(-4 * sc, -8 * sc, 8 * sc, 6 * sc)
+      ctx.fillRect(-3 * sc, -2 * sc, 6 * sc, 4 * sc)
+      // Casco de hierro
+      ctx.fillStyle = '#8a8890'
+      ctx.fillRect(-5 * sc, -15 * sc, 10 * sc, 2 * sc)
+      ctx.fillRect(-6 * sc, -13 * sc, 12 * sc, 3 * sc)
+      // Hacha sobre hombro
+      ctx.fillStyle = '#8a8890'
+      ctx.fillRect(6 * sc, -12 * sc, 2 * sc, 14 * sc)
+      ctx.fillStyle = '#c08020'
+      ctx.fillRect(4 * sc, -14 * sc, 6 * sc, 4 * sc)
+      // Ojos profundos
+      ctx.fillStyle = '#1a0800'
+      if (dir !== 'up') {
+        ctx.fillRect(-2 * sc, -9 * sc, 1.5 * sc, 1.5 * sc)
+        ctx.fillRect(0.5 * sc, -9 * sc, 1.5 * sc, 1.5 * sc)
+      }
     } else if (char === 'villager') {
       const color = extraColor || '#8a6030'
       ctx.fillStyle = color
@@ -1678,6 +1849,14 @@ export default function GamePage() {
 
     for (const di of st.droppedItems) {
       const bounce = Math.sin(di.bouncePhase) * 3
+      const ddx = di.x - p.x, ddy = di.y - p.y
+      const ddist = Math.sqrt(ddx*ddx + ddy*ddy)
+      if (ddist < T * 2) {
+        ctx.font = 'bold 9px monospace'
+        ctx.fillStyle = '#c8a84b'
+        ctx.textAlign = 'center'
+        ctx.fillText('📦', di.x - sx, di.y - sy - 18 + bounce)
+      }
       ctx.font = '16px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText(ITEMS[di.item]?.icon || '?', di.x - sx, di.y - sy - 8 + bounce)
@@ -1787,8 +1966,12 @@ export default function GamePage() {
       }
     }
 
-    const naz = st.nazgul
-    if (naz && (naz.hp > 0 || naz.state === 'dying')) {
+    const allNazToRender = [
+      ...(st.nazgul ? [st.nazgul] : []),
+      ...st.nazgulList.filter(n => n !== st.nazgul)
+    ]
+    for (const naz of allNazToRender) {
+    if (!naz || (naz.hp <= 0 && naz.state !== 'dying')) continue
       const nx = naz.x - sx, ny = naz.y - sy
 
       if (naz.state === 'dying') {
@@ -2018,15 +2201,14 @@ export default function GamePage() {
   useEffect(() => {
     const handleResize = () => {
       if (canvasRef.current) {
-        const parent = canvasRef.current.parentElement
-        if (parent) {
-          canvasRef.current.width = parent.clientWidth
-          canvasRef.current.height = parent.clientHeight
-        }
+        canvasRef.current.width = window.innerWidth
+        canvasRef.current.height = window.innerHeight
       }
       setIsCompact(window.innerHeight < 700)
     }
 
+    setTimeout(handleResize, 50)
+    setTimeout(handleResize, 200)
     handleResize()
     window.addEventListener('resize', handleResize)
     window.addEventListener('orientationchange', () => setTimeout(handleResize, 100))
@@ -2034,7 +2216,7 @@ export default function GamePage() {
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('orientationchange', handleResize)
     }
-  }, [])
+  }, [screen])
 
   useEffect(() => {
     animRef.current = requestAnimationFrame(loop)
@@ -2123,11 +2305,11 @@ export default function GamePage() {
   return (
     <div
       ref={rootRef}
-      className="relative w-full bg-[#0a0804] flex flex-col overflow-hidden select-none"
+      className="relative w-full bg-[#0a0804] overflow-hidden select-none"
       style={{ touchAction: 'manipulation', height: '100dvh' }}
     >
       {screen === 'game' && S.current?.p && (
-        <div className="flex-none px-2 pt-1 pb-0 z-10">
+        <div className="absolute top-0 left-0 right-0 px-2 pt-1 pb-1 z-10" style={{ background: 'linear-gradient(to bottom, rgba(10,8,4,0.85) 80%, transparent)' }}>
           <div className="flex items-start justify-between">
             <div className="rounded-lg border border-[rgba(200,168,75,0.3)] overflow-hidden bg-[rgba(0,0,0,0.5)]">
               <canvas ref={minimapRef} width={64} height={64} className="block" />
@@ -2151,9 +2333,17 @@ export default function GamePage() {
               <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
               </div>
-              <div className="text-[#c8a84b] text-xs font-medium">
-                ◈ {S.current.p.gold} MC
-              </div>
+              {S.current.p && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-[#c8a84b] text-[10px] font-bold">Nv.{S.current.p.level}</span>
+                  <div className="w-16 h-1.5 rounded-full bg-[#2a2010]">
+                    <div
+                      className="h-full rounded-full bg-[#c8a84b] transition-all"
+                      style={{ width: `${Math.min(100, ((S.current.p.xp - (XP_TABLE[S.current.p.level - 1] || 0)) / ((XP_TABLE[S.current.p.level] || XP_TABLE[XP_TABLE.length-1]) - (XP_TABLE[S.current.p.level - 1] || 0))) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               {S.current.heroMode && (
                 <div className="text-[#c8a84b] text-[10px] animate-pulse">INMORTAL</div>
               )}
@@ -2167,14 +2357,14 @@ export default function GamePage() {
 
       {screen === 'game' && S.current && (
         <div 
-          className="flex-none mx-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
-          style={{ background: '#0a0a0a', height: 'auto' }}
+          className="absolute left-2 right-2 rounded-lg border border-[#2a3a1a] overflow-hidden flex flex-col z-10"
+          style={{ background: 'rgba(10,10,10,0.85)', top: '86px' }}
         >
           <div
             ref={logRef}
             className="px-2 py-1"
             style={{
-              height: '66px',
+              height: '44px',
               overflowY: 'auto',
               overflowX: 'hidden',
               scrollbarWidth: 'none',
@@ -2255,7 +2445,7 @@ export default function GamePage() {
         </div>
       )}
 
-      <div className="flex-1 relative flex items-center justify-center">
+      <div className="absolute inset-0">
         <canvas
           ref={canvasRef}
           className="block w-full h-full"
@@ -2268,7 +2458,7 @@ export default function GamePage() {
       </div>
 
       {screen === 'game' && S.current && (
-        <div className="flex-none px-3 pb-3 pt-1 flex items-end justify-between gap-3 z-10 relative" style={{ background: 'rgba(20,15,10,0.95)' }}>
+        <div className="absolute bottom-0 left-0 right-0 px-2 pb-2 pt-2 flex items-end justify-between gap-2 z-10" style={{ background: 'linear-gradient(to top, rgba(10,8,4,0.92) 70%, transparent)' }}>
 
           {invPanelOpen && S.current?.p && (
             <div
@@ -2302,7 +2492,7 @@ export default function GamePage() {
           <div
             ref={joystickRef}
             className="rounded-full bg-[rgba(200,168,75,0.08)] border-2 border-[rgba(200,168,75,0.2)] flex items-center justify-center flex-shrink-0"
-            style={{ width: 90, height: 90, touchAction: 'none', opacity: 0.85 }}
+            style={{ width: 80, height: 80, touchAction: 'none', opacity: 0.85 }}
             onPointerDown={handleJoystickPointerDown}
             onPointerMove={handleJoystickPointerMove}
             onPointerUp={handleJoystickPointerUp}
@@ -2319,16 +2509,25 @@ export default function GamePage() {
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); doAttack() }}
                 onClick={(e) => { e.preventDefault(); doAttack() }}
-                className="w-16 h-16 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all"
-                title="Atacar"
+                className="w-14 h-14 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all"
+                title={`Atacar — ${WEAPONS[S.current.p?.char||'']?.[S.current.p?.weaponSlot||'main']?.label || 'Atacar'}`}
               >
-                {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
+                {WEAPONS[S.current.p?.char||'']?.[S.current.p?.weaponSlot||'main']?.icon || '⚔️'}
+              </button>
+
+              <button
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); doSwapWeapon() }}
+                onClick={(e) => { e.preventDefault(); doSwapWeapon() }}
+                className="w-10 h-10 rounded-xl bg-[#1a2010] border-2 border-[#3a4a20] flex items-center justify-center text-lg active:bg-[#2a3020] active:scale-95 transition-all"
+                title="Cambiar arma"
+              >
+                {WEAPONS[S.current.p?.char||'']?.[S.current.p?.weaponSlot === 'main' ? 'secondary' : 'main']?.icon || '🔄'}
               </button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
                 onClick={(e) => { e.preventDefault(); if (S.current?.p) { S.current.p.invT = Math.max(S.current.p.invT, 60); log('s', 'Te pones en guardia.'); notify('DEFENSA', '#5a8a3a') } }}
-                className="w-16 h-16 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all"
+                className="w-14 h-14 rounded-2xl bg-[#1a3040] border-2 border-[#2a4a5a] flex items-center justify-center text-2xl active:bg-[#2a4050] active:scale-95 transition-all"
                 title="Defender"
               >
                 🛡️
@@ -2338,7 +2537,7 @@ export default function GamePage() {
                 <button
                   onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); useRing() }}
                   onClick={(e) => { e.preventDefault(); useRing() }}
-                  className="w-16 h-16 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all animate-pulse"
+                  className="w-14 h-14 rounded-2xl bg-[#2a2010] border-2 border-[#c8a84b] flex items-center justify-center text-2xl active:bg-[#3a3020] active:scale-95 transition-all animate-pulse"
                   title="Usar Anillo"
                 >
                   💍
@@ -2362,11 +2561,11 @@ export default function GamePage() {
               >🍞</button>
 
               <button
-                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); tryInteract() }}
-                onClick={(e) => { e.preventDefault(); tryInteract() }}
-                className="w-12 h-12 rounded-xl bg-[#102030] border-2 border-[#2a3a4a] flex items-center justify-center text-lg active:bg-[#1a2a3a] active:scale-95 transition-all"
-                title="Hablar"
-              >💬</button>
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const nearby = getNearbyItem(); if (nearby) { const idx = S.current!.droppedItems.indexOf(nearby); if (idx >= 0) { S.current!.p!.inv.push(nearby.item); log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`); notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b'); S.current!.droppedItems.splice(idx, 1); forceUpdate(n => n + 1); } } else { tryInteract(); } }}
+                onClick={(e) => { e.preventDefault(); const nearby = getNearbyItem(); if (nearby) { const idx = S.current!.droppedItems.indexOf(nearby); if (idx >= 0) { S.current!.p!.inv.push(nearby.item); log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`); notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b'); S.current!.droppedItems.splice(idx, 1); forceUpdate(n => n + 1); } } else { tryInteract(); } }}
+                className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center text-lg active:scale-95 transition-all ${getNearbyItem() ? 'bg-[#1a2a10] border-[#3a5a20]' : 'bg-[#102030] border-[#2a3a4a] active:bg-[#1a2a3a]'}`}
+                title={getNearbyItem() ? 'Recoger item' : 'Hablar'}
+              >{getNearbyItem() ? '📦' : '💬'}</button>
 
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); setInvPanelOpen(v => !v) }}
@@ -2618,6 +2817,29 @@ function CharPreview({ charKey }: { charKey: string }) {
       ctx.lineTo(0, -28 * sc)
       ctx.lineTo(6 * sc, -18 * sc)
       ctx.fill()
+    } else if (charKey === 'legolas') {
+      ctx.fillStyle = '#3a5820'
+      ctx.fillRect(-5 * sc, -8 * sc, 10 * sc, 11 * sc)
+      ctx.fillStyle = '#e8d0a0'
+      ctx.fillRect(-3 * sc, -16 * sc, 6 * sc, 8 * sc)
+      ctx.fillStyle = '#d4a820'
+      ctx.fillRect(-4 * sc, -17 * sc, 8 * sc, 3 * sc)
+      ctx.strokeStyle = '#6a4010'
+      ctx.lineWidth = 1.5 * sc
+      ctx.beginPath()
+      ctx.arc(8 * sc, -8 * sc, 10 * sc, -0.8, 0.8)
+      ctx.stroke()
+    } else if (charKey === 'gimli') {
+      ctx.fillStyle = '#5a4020'
+      ctx.fillRect(-7 * sc, -6 * sc, 14 * sc, 10 * sc)
+      ctx.fillStyle = '#c08040'
+      ctx.fillRect(-4 * sc, -14 * sc, 8 * sc, 8 * sc)
+      ctx.fillStyle = '#8a5020'
+      ctx.fillRect(-4 * sc, -7 * sc, 8 * sc, 5 * sc)
+      ctx.fillStyle = '#8a8890'
+      ctx.fillRect(-5 * sc, -17 * sc, 10 * sc, 4 * sc)
+      ctx.fillRect(6 * sc, -14 * sc, 2 * sc, 16 * sc)
+      ctx.fillRect(4 * sc, -14 * sc, 6 * sc, 4 * sc)
     }
 
     ctx.restore()
