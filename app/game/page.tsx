@@ -130,7 +130,7 @@ interface GandalfAlly {
   y: number
   hp: number
   maxhp: number
-  state: 'idle' | 'alert'
+  state: 'idle' | 'alert' | 'following'
   dir: Dir
   frame: number
   patrol: { x: number; y: number }[]
@@ -671,16 +671,29 @@ export default function GamePage() {
   const openGandalfDlg = useCallback(() => {
     if (!S.current || !S.current.gandalfAlly || !S.current.p) return
     const pName = CHARS[S.current.p.char].name
-    log('e', `GANDALF: El Nazgul acecha, ${pName}.`)
-    log('e', `GANDALF: Quedate cerca de mi.`)
-    S.current.dlg = {
-      active: true,
-      speaker: 'GANDALF',
-      lines: [],
-      lineIdx: 0,
-      opts: [{ l: 'Gracias, Gandalf.', action: 'close' }],
+    const g = S.current.gandalfAlly
+    const alreadyFollowing = g.state === 'following'
+    if (alreadyFollowing) {
+      log('e', `GANDALF: Estoy contigo, ${pName}. Sigo protegiéndote.`)
+      S.current.dlg = {
+        active: true, speaker: 'GANDALF', lines: [], lineIdx: 0,
+        opts: [
+          { l: 'Quédate aquí, Gandalf.', action: 'gandalf_stay' },
+          { l: 'Bien, sigamos.', action: 'close' },
+        ],
+      }
+    } else {
+      log('e', `GANDALF: Las sombras se acercan, ${pName}.`)
+      log('e', `GANDALF: Puedo acompañarte y mantener a raya a los Nazgûl.`)
+      S.current.dlg = {
+        active: true, speaker: 'GANDALF', lines: [], lineIdx: 0,
+        opts: [
+          { l: '¡Únete a mí, Gandalf!', action: 'gandalf_follow' },
+          { l: 'Gracias, pero puedo solo.', action: 'close' },
+        ],
+      }
     }
-    S.current.gandalfAlly.talked = true
+    g.talked = true
     forceUpdate(n => n + 1)
   }, [log])
 
@@ -743,8 +756,18 @@ export default function GamePage() {
     forceUpdate(n => n + 1)
   }, [log, notify])
 
-  const closeDlg = useCallback(() => {
+  const closeDlg = useCallback((action?: string) => {
     if (!S.current) return
+    if (action === 'gandalf_follow' && S.current.gandalfAlly) {
+      S.current.gandalfAlly.state = 'following'
+      log('e', 'GANDALF: ¡Por la Comarca! Te seguiré adonde vayas.')
+      notify('✦ Gandalf te sigue ✦', '#e8e0a0')
+    }
+    if (action === 'gandalf_stay' && S.current.gandalfAlly) {
+      S.current.gandalfAlly.state = 'idle'
+      log('e', 'GANDALF: Esperaré aquí. Llamame cuando me necesites.')
+      notify('Gandalf patrulla', '#8a8860')
+    }
     S.current.dlg.active = false
     forceUpdate(n => n + 1)
   }, [])
@@ -1277,48 +1300,77 @@ export default function GamePage() {
       const gpdx = p.x - g.x, gpdy = p.y - g.y
       const gpDist = Math.sqrt(gpdx * gpdx + gpdy * gpdy)
 
-      if (naz && naz.hp > 0 && naz.state !== 'dying' && g.attackCooldown === 0) {
-        const gndx = naz.x - g.x, gndy = naz.y - g.y
-        const gnDist = Math.sqrt(gndx * gndx + gndy * gndy)
+      // — MODO FOLLOWING: seguir al jugador —
+      if (g.state === 'following') {
+        const followDist = 2.5 * T  // distancia ideal de compañía
+        const teleportDist = 12 * T // si se aleja mucho, teleport
+        if (gpDist > teleportDist) {
+          // teleport cerca del jugador
+          const angle = Math.atan2(gpdy, gpdx)
+          g.x = p.x - Math.cos(angle) * followDist * 1.2
+          g.y = p.y - Math.sin(angle) * followDist * 1.2
+        } else if (gpDist > followDist + T) {
+          // moverse hacia el jugador manteniendo distancia
+          const angle = Math.atan2(gpdy, gpdx)
+          const targetX = p.x - Math.cos(angle) * followDist
+          const targetY = p.y - Math.sin(angle) * followDist
+          moveToward(g, targetX, targetY, 1.8)
+          g.frame++
+        }
+      }
 
-        if (gpDist < 4 * T && gnDist < 6 * T) {
-          g.shieldActive = 120
-          g.attackCooldown = 180
-          g.state = 'alert'
-          g.rayTarget = { x: naz.x, y: naz.y }
-          g.rayFrames = 8
+      // — COMBATE: atacar TODOS los nazgul de la lista —
+      if (g.attackCooldown === 0) {
+        const allNazForGandalf = [
+          ...(st.nazgul && st.nazgul.hp > 0 && st.nazgul.state !== 'dying' ? [st.nazgul] : []),
+          ...st.nazgulList.filter(n => n !== st.nazgul && n.hp > 0 && n.state !== 'dying')
+        ]
+        // detectar radio: más amplio si está siguiendo al jugador
+        const detectRange = g.state === 'following' ? 8 * T : 6 * T
+        const activateRange = g.state === 'following' ? 6 * T : 4 * T
 
-          naz.hp -= 8
-          st.fx.push({
-            x: naz.x,
-            y: naz.y - 20,
-            text: '-8',
-            color: '#e8e0a0',
-            vy: -1.1,
-            life: 40,
-          })
+        for (const target of allNazForGandalf) {
+          const gndx = target.x - g.x, gndy = target.y - g.y
+          const gnDist = Math.sqrt(gndx * gndx + gndy * gndy)
+          const inRange = g.state === 'following'
+            ? (gnDist < detectRange && gpDist < activateRange * 1.5)  // si te sigue, ataca a cualquier nazgul que esté lejos
+            : (gpDist < activateRange && gnDist < detectRange)         // si patrulla, solo ataca si estás cerca
 
-          const kbDist = Math.sqrt(gndx * gndx + gndy * gndy)
-          if (kbDist > 0) {
-            naz.x += (gndx / kbDist) * T * 3
-            naz.y += (gndy / kbDist) * T * 3
-            naz.x = Math.max(T, Math.min((WW - 1) * T, naz.x))
-            naz.y = Math.max(T, Math.min((WH - 1) * T, naz.y))
-          }
-          naz.state = 'flee_gandalf'
+          if (inRange) {
+            g.shieldActive = 120
+            g.attackCooldown = 180
+            g.state = g.state === 'following' ? 'following' : 'alert'
+            g.rayTarget = { x: target.x, y: target.y }
+            g.rayFrames = 8
 
-          log('e', 'Gandalf: ¡Atrás, criatura de la oscuridad! -8 HP al Nazgûl')
-          notify('✦ GANDALF TE PROTEGE ✦', '#e8e0a0')
+            target.hp -= 8
+            st.fx.push({
+              x: target.x, y: target.y - 20, text: '✦ -8 ✦', color: '#e8e0a0', vy: -1.1, life: 40,
+            })
 
-          if (naz.hp <= 0) {
-            naz.state = 'dying'
-            naz.deathFrame = 0
+            const kbDist = Math.sqrt(gndx * gndx + gndy * gndy)
+            if (kbDist > 0) {
+              target.x += (gndx / kbDist) * T * 3
+              target.y += (gndy / kbDist) * T * 3
+              target.x = Math.max(T, Math.min((WW - 1) * T, target.x))
+              target.y = Math.max(T, Math.min((WH - 1) * T, target.y))
+            }
+            target.state = 'flee_gandalf'
+
+            if (target.hp <= 0) {
+              target.state = 'dying'
+              target.deathFrame = 0
+            }
+
+            log('e', '✦ ¡No tocarás a mi compañero! ✦')
+            notify('✦ GANDALF ATACA ✦', '#e8e0a0')
+            break  // atacar un nazgul por frame
           }
         }
       }
 
-      if (g.shieldActive === 0) {
-        g.state = 'idle'
+      // — PATRULLA cuando está en idle (no following) —
+      if (g.state === 'idle' && g.shieldActive === 0) {
         g.patrolTimer--
         if (g.patrolTimer <= 0) {
           g.patrolIdx = (g.patrolIdx + 1) % g.patrol.length
