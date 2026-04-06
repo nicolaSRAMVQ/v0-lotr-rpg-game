@@ -167,8 +167,7 @@ interface Player {
   daggerAngle: number
   staffRayAnim: number
   staffRayTarget: { x: number; y: number } | null
-  xp: number
-  level: number
+  staffSwingAnim: number
   weaponSlot: 'main' | 'secondary'
 }
 
@@ -488,8 +487,7 @@ export default function GamePage() {
         daggerAngle: 0,
         staffRayAnim: 0,
         staffRayTarget: null,
-        xp: 0,
-        level: 1,
+        staffSwingAnim: 0,
         weaponSlot: 'main',
       },
       cam: { x: startX - 200, y: startY - 200 },
@@ -810,42 +808,80 @@ export default function GamePage() {
     const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
 
     if (p.char === 'aragorn') {
-      p.atkCd = 28
-      p.sweepAnim = 20
-      p.sweepAngle = dirAngles[p.dir]
-
-      for (let i = 0; i < 10; i++) {
-        const angle = p.sweepAngle - Math.PI / 3 + (Math.PI * 2 / 3) * (i / 10)
-        S.current.parts.push({
-          x: p.x + Math.cos(angle) * T * 2,
-          y: p.y + Math.sin(angle) * T * 2,
-          vx: Math.cos(angle) * 1.5,
-          vy: Math.sin(angle) * 1.5,
-          color: '#c8a84b',
-          life: 15,
-          maxLife: 15,
-        })
+      if (p.weaponSlot === 'secondary') {
+        // Arco: flecha larga recto hacia adelante
+        p.atkCd = 45
+        p.daggerAnim = 10
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 8; i++) {
+          const angle = dirAngles[p.dir] + (Math.random()-0.5)*0.15
+          S.current.parts.push({
+            x: p.x + Math.cos(angle) * T,
+            y: p.y + Math.sin(angle) * T,
+            vx: Math.cos(angle) * 6,
+            vy: Math.sin(angle) * 6,
+            color: '#d4a820', life: 14, maxLife: 14,
+          })
+        }
+      } else {
+        // Espada: sweep
+        p.atkCd = 28
+        p.sweepAnim = 20
+        p.sweepAngle = dirAngles[p.dir]
+        for (let i = 0; i < 10; i++) {
+          const angle = p.sweepAngle - Math.PI/3 + (Math.PI*2/3) * (i/10)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*2, y: p.y + Math.sin(angle)*T*2,
+            vx: Math.cos(angle)*1.5, vy: Math.sin(angle)*1.5,
+            color: '#c8a84b', life: 15, maxLife: 15,
+          })
+        }
       }
     } else if (p.char === 'frodo') {
-      p.atkCd = 50
-      p.daggerAnim = 14
-      p.daggerAngle = dirAngles[p.dir]
-
-      for (let i = 0; i < 6; i++) {
-        const angle = p.daggerAngle - Math.PI / 4 + (Math.PI / 2) * (i / 6)
-        S.current.parts.push({
-          x: p.x + Math.cos(angle) * T * 1.5,
-          y: p.y + Math.sin(angle) * T * 1.5,
-          vx: Math.cos(angle) * 1.2,
-          vy: Math.sin(angle) * 1.2,
-          color: '#b4d2ff',
-          life: 12,
-          maxLife: 12,
-        })
+      if (p.weaponSlot === 'secondary') {
+        // Daga: golpe muy rápido y corto, partículas grises
+        p.atkCd = 25
+        p.daggerAnim = 7
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 4; i++) {
+          const angle = p.daggerAngle + (Math.random()-0.5)*0.5
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*0.8, y: p.y + Math.sin(angle)*T*0.8,
+            vx: Math.cos(angle)*2, vy: Math.sin(angle)*2,
+            color: '#9a9ab0', life: 8, maxLife: 8,
+          })
+        }
+      } else {
+        // Sting: daga élfica azul
+        p.atkCd = 50
+        p.daggerAnim = 14
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 6; i++) {
+          const angle = p.daggerAngle - Math.PI/4 + (Math.PI/2)*(i/6)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*1.5, y: p.y + Math.sin(angle)*T*1.5,
+            vx: Math.cos(angle)*1.2, vy: Math.sin(angle)*1.2,
+            color: '#b4d2ff', life: 12, maxLife: 12,
+          })
+        }
       }
     } else if (p.char === 'gandalf') {
-      p.atkCd = 90
-      p.staffRayAnim = 12
+      if (p.weaponSlot === 'secondary') {
+        // Glamdring: sweep plateado, cuerpo a cuerpo fuerte
+        p.atkCd = 38
+        p.staffSwingAnim = 18
+        const swingAngle = dirAngles[p.dir]
+        for (let i = 0; i < 10; i++) {
+          const angle = swingAngle - Math.PI/3 + (Math.PI*2/3)*(i/10)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*1.8, y: p.y + Math.sin(angle)*T*1.8,
+            vx: Math.cos(angle)*2, vy: Math.sin(angle)*2,
+            color: '#c0c8e8', life: 16, maxLife: 16,
+          })
+        }
+      } else {
+        p.atkCd = 90
+        p.staffRayAnim = 12
 
       const naz = S.current.nazgul
       if (naz && naz.hp > 0 && naz.state !== 'dying') {
@@ -902,40 +938,67 @@ export default function GamePage() {
         y: p.y + Math.sin(dirAngles[p.dir]) * 3.5 * T
       }
       return
+      }
     }
 
     // Legolas: disparo de flecha a distancia con partículas doradas
     if (p.char === 'legolas') {
-      p.atkCd = 35
-      p.daggerAnim = 12
-      p.daggerAngle = dirAngles[p.dir]
-      for (let i = 0; i < 5; i++) {
-        const angle = p.daggerAngle + (Math.random() - 0.5) * 0.2
-        S.current.parts.push({
-          x: p.x + Math.cos(angle) * T,
-          y: p.y + Math.sin(angle) * T,
-          vx: Math.cos(angle) * 4,
-          vy: Math.sin(angle) * 4,
-          color: '#d4a820',
-          life: 10, maxLife: 10,
-        })
+      if (p.weaponSlot === 'secondary') {
+        // Cuchillos: ataque cuerpo a cuerpo, partículas grises rápidas cortas
+        p.atkCd = 22
+        p.daggerAnim = 8
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 5; i++) {
+          const angle = p.daggerAngle - Math.PI/4 + (Math.PI/2)*(i/5)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*0.9, y: p.y + Math.sin(angle)*T*0.9,
+            vx: Math.cos(angle)*2.5, vy: Math.sin(angle)*2.5,
+            color: '#9a9ab0', life: 9, maxLife: 9,
+          })
+        }
+      } else {
+        // Arco: flecha dorada larga
+        p.atkCd = 35
+        p.daggerAnim = 12
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 5; i++) {
+          const angle = p.daggerAngle + (Math.random()-0.5)*0.2
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T, y: p.y + Math.sin(angle)*T,
+            vx: Math.cos(angle)*4, vy: Math.sin(angle)*4,
+            color: '#d4a820', life: 10, maxLife: 10,
+          })
+        }
       }
     }
     // Gimli: golpe de hacha en área pequeña, más daño
     if (p.char === 'gimli') {
-      p.atkCd = 40
-      p.sweepAnim = 18
-      p.sweepAngle = dirAngles[p.dir]
-      for (let i = 0; i < 8; i++) {
-        const angle = p.sweepAngle - Math.PI / 4 + (Math.PI / 2) * (i / 8)
-        S.current.parts.push({
-          x: p.x + Math.cos(angle) * T * 1.6,
-          y: p.y + Math.sin(angle) * T * 1.6,
-          vx: Math.cos(angle) * 2,
-          vy: Math.sin(angle) * 2,
-          color: '#9a9aaa',
-          life: 14, maxLife: 14,
-        })
+      if (p.weaponSlot === 'secondary') {
+        // Cuchillo: ataque directo rápido
+        p.atkCd = 18
+        p.daggerAnim = 8
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 4; i++) {
+          const angle = p.daggerAngle + (Math.random()-0.5)*0.3
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*0.7, y: p.y + Math.sin(angle)*T*0.7,
+            vx: Math.cos(angle)*2, vy: Math.sin(angle)*2,
+            color: '#9a9ab0', life: 8, maxLife: 8,
+          })
+        }
+      } else {
+        // Hacha doble: sweep gris metálico
+        p.atkCd = 40
+        p.sweepAnim = 18
+        p.sweepAngle = dirAngles[p.dir]
+        for (let i = 0; i < 8; i++) {
+          const angle = p.sweepAngle - Math.PI/4 + (Math.PI/2)*(i/8)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*1.6, y: p.y + Math.sin(angle)*T*1.6,
+            vx: Math.cos(angle)*2, vy: Math.sin(angle)*2,
+            color: '#9a9aaa', life: 14, maxLife: 14,
+          })
+        }
       }
     }
 
@@ -1071,6 +1134,7 @@ export default function GamePage() {
     if (p.sweepAnim > 0) p.sweepAnim--
     if (p.daggerAnim > 0) p.daggerAnim--
     if (p.staffRayAnim > 0) p.staffRayAnim--
+    if (p.staffSwingAnim > 0) p.staffSwingAnim--
 
     if (st.frameCount === 180 && st.gameMode === 'horde') {
       log('i', 'Habla con Gandalf antes de que llegue el Nazgûl.')
@@ -2178,6 +2242,15 @@ export default function GamePage() {
     }
 
     const px = p.x - sx, py = p.y - sy
+
+    if (p.char === 'gandalf' && p.staffSwingAnim > 0) {
+      const progress = p.staffSwingAnim / 18
+      ctx.strokeStyle = `rgba(192,200,232,${progress * 0.8})`
+      ctx.lineWidth = 5
+      ctx.beginPath()
+      ctx.arc(px, py, T * 1.8, dirAngles[p.dir] - Math.PI/3, dirAngles[p.dir] + Math.PI/3)
+      ctx.stroke()
+    }
 
     if (p.char === 'aragorn' && p.sweepAnim > 0) {
       const progress = p.sweepAnim / 20
