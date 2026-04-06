@@ -18,11 +18,11 @@ const CHARS: Record<string, { name: string; spd: number; maxhp: number; dmg: num
 
 // ============ ITEMS ============
 const WEAPONS: Record<string, { main: { icon: string; label: string; dmgMult: number; rangeMult: number }; secondary: { icon: string; label: string; dmgMult: number; rangeMult: number } }> = {
-  frodo:   { main: { icon: '🗡️', label: 'Sting',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🧥', label: 'Capa',     dmgMult: 0.5, rangeMult: 0.8 } },
-  aragorn: { main: { icon: '⚔️', label: 'Andúril',  dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🏹', label: 'Arco',     dmgMult: 0.8, rangeMult: 2.0 } },
-  gandalf: { main: { icon: '✦',  label: 'Bastón',   dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🌟', label: 'Cayado',   dmgMult: 1.5, rangeMult: 0.6 } },
-  legolas: { main: { icon: '🏹', label: 'Arco',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🗡️', label: 'Cuchillos',dmgMult: 0.8, rangeMult: 0.4 } },
-  gimli:   { main: { icon: '🪓', label: 'Hacha',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🛡️', label: 'Escudo',   dmgMult: 0.3, rangeMult: 0.5 } },
+  frodo:   { main: { icon: '🗡️', label: 'Sting',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Daga',      dmgMult: 0.7, rangeMult: 0.6 } },
+  aragorn: { main: { icon: '⚔️', label: 'Andúril',   dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🏹', label: 'Arco',      dmgMult: 0.7, rangeMult: 2.5 } },
+  gandalf: { main: { icon: '✦',  label: 'Bastón',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '⚔️', label: 'Glamdring', dmgMult: 1.4, rangeMult: 0.7 } },
+  legolas: { main: { icon: '🏹', label: 'Arco',      dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Cuchillos', dmgMult: 0.9, rangeMult: 0.5 } },
+  gimli:   { main: { icon: '🪓', label: 'Hacha',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Cuchillo',  dmgMult: 0.6, rangeMult: 0.7 } },
 }
 
 const ITEMS: Record<string, { icon: string; desc: string }> = {
@@ -34,6 +34,7 @@ const ITEMS: Record<string, { icon: string; desc: string }> = {
   espada_rota: { icon: '🗡️', desc: 'Espada rota. Daño reducido.' },
   arco: { icon: '🏹', desc: 'Arco élfico. Ataque a distancia.' },
   hacha: { icon: '🪓', desc: 'Hacha enana. Daño demoledor.' },
+  gold: { icon: '💰', desc: 'Monedas de la Comarca.' },
 }
 
 // ============ VILLAGER DEFINITIONS ============
@@ -68,6 +69,8 @@ const MOD_COMMANDS = [
   { cmd: '/modo explorar', desc: 'Modo exploración libre' },
   { cmd: '/nazgul 1', desc: 'Spawna 1 Nazgûl' },
   { cmd: '/nazgul 3', desc: 'Spawna 3 Nazgûl' },
+  { cmd: '/tienda', desc: 'Ver productos del comerciante' },
+  { cmd: '/comprar lembas', desc: 'Comprar item al comerciante' },
 ]
 
 // ============ TYPES ============
@@ -82,6 +85,7 @@ interface DroppedItem {
   y: number
   item: string
   bouncePhase: number
+  amount?: number
 }
 
 interface Villager {
@@ -163,9 +167,16 @@ interface Player {
   daggerAngle: number
   staffRayAnim: number
   staffRayTarget: { x: number; y: number } | null
-  xp: number
-  level: number
+  staffSwingAnim: number
   weaponSlot: 'main' | 'secondary'
+}
+
+interface Merchant {
+  id: string
+  x: number
+  y: number
+  dir: Dir
+  frame: number
 }
 
 interface FX {
@@ -228,9 +239,46 @@ interface GameState {
   screenFlash: number
   groundMarks: { x: number; y: number; alpha: number }[]
   gamePaused: boolean
+  merchants: Merchant[]
+  activeMerchant: string | null
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
+
+const SHOPS: Record<string, { name: string; icon: string; color: string; items: { id: string; name: string; icon: string; price: number; type: 'weapon'|'armor'|'food'|'potion' }[] }> = {
+  herrero: {
+    name: 'Herrero Bolger', icon: '⚒️', color: '#8a6030',
+    items: [
+      { id: 'espada', name: 'Espada', icon: '⚔️', price: 30, type: 'weapon' },
+      { id: 'hacha', name: 'Hacha', icon: '🪓', price: 35, type: 'weapon' },
+      { id: 'armadura', name: 'Armadura', icon: '🛡️', price: 50, type: 'armor' },
+    ]
+  },
+  ropero: {
+    name: 'Ropero Took', icon: '👔', color: '#6060a0',
+    items: [
+      { id: 'capa_viaje', name: 'Capa viajero', icon: '🧥', price: 20, type: 'armor' },
+      { id: 'botas', name: 'Botas élf.', icon: '👢', price: 25, type: 'armor' },
+      { id: 'capucha', name: 'Capucha', icon: '🎩', price: 15, type: 'armor' },
+    ]
+  },
+  almacenero: {
+    name: 'Sam Gamyi', icon: '🌾', color: '#508030',
+    items: [
+      { id: 'lembas', name: 'Lembas', icon: '🍞', price: 8, type: 'food' },
+      { id: 'manzana', name: 'Manzana', icon: '🍎', price: 3, type: 'food' },
+      { id: 'jarron_miel', name: 'Miel', icon: '🍯', price: 12, type: 'food' },
+    ]
+  },
+  boticario: {
+    name: 'Boticar. Brandy', icon: '⚗️', color: '#208060',
+    items: [
+      { id: 'miruvor', name: 'Miruvor', icon: '🧴', price: 20, type: 'potion' },
+      { id: 'antidoto', name: 'Antídoto', icon: '💊', price: 15, type: 'potion' },
+      { id: 'elixir', name: 'Elixir hp', icon: '🧪', price: 40, type: 'potion' },
+    ]
+  },
+}
 
 const XP_TABLE = [0, 50, 120, 220, 360, 550, 800, 1120, 1520, 2020]
 const XP_REWARDS = { nazgul: 30, villager_saved: 10 }
@@ -249,6 +297,8 @@ export default function GamePage() {
   const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
   const [, forceUpdate] = useState(0)
   const [isCompact, setIsCompact] = useState(false)
+  const [invPanelOpen, setInvPanelOpen] = useState(false)
+  const [shopPanelOpen, setShopPanelOpen] = useState(false)
 
   const log = useCallback((type: string, msg: string) => {
     if (!S.current) return
@@ -439,8 +489,7 @@ export default function GamePage() {
         daggerAngle: 0,
         staffRayAnim: 0,
         staffRayTarget: null,
-        xp: 0,
-        level: 1,
+        staffSwingAnim: 0,
         weaponSlot: 'main',
       },
       cam: { x: startX - 200, y: startY - 200 },
@@ -472,6 +521,13 @@ export default function GamePage() {
       screenFlash: 0,
       groundMarks: [],
       gamePaused: false,
+      merchants: [
+        { id: 'herrero',    x: 45 * T, y: 28 * T, dir: 'down', frame: 0 },
+        { id: 'ropero',     x: 55 * T, y: 28 * T, dir: 'down', frame: 0 },
+        { id: 'almacenero', x: 45 * T, y: 44 * T, dir: 'down', frame: 0 },
+        { id: 'boticario',  x: 55 * T, y: 44 * T, dir: 'down', frame: 0 },
+      ],
+      activeMerchant: null,
     }
 
     if (mode === 'exploration') {
@@ -504,7 +560,7 @@ export default function GamePage() {
     const p = S.current.p
     return S.current.droppedItems.find(di => {
       const dx = di.x - p.x, dy = di.y - p.y
-      return Math.sqrt(dx*dx + dy*dy) < T * 2
+      return Math.sqrt(dx*dx + dy*dy) < T * 2.5
     }) || null
   }, [])
 
@@ -583,6 +639,28 @@ export default function GamePage() {
     } else if (cmd.startsWith('/invocar ')) {
       const name = cmd.replace('/invocar ', '')
       log('s', `Invocando a ${name}... (próximamente)`)
+    } else if (cmd.startsWith('/comprar ')) {
+      const itemId = cmd.replace('/comprar ', '').trim()
+      const merchant = st.activeMerchant ? SHOPS[st.activeMerchant] : null
+      if (!merchant) { log('d', 'No hay comerciante cerca. Acércate y habla primero.'); }
+      else {
+        const item = merchant.items.find(i => i.id === itemId)
+        if (!item) { log('d', `${merchant.name} no vende eso.`); }
+        else if ((st.p?.gold ?? 0) < item.price) { log('d', `No tenés MC suficiente. Necesitás ${item.price} MC.`); }
+        else if (st.p) {
+          st.p.gold -= item.price
+          st.p.inv.push(item.id)
+          log('s', `Compraste ${item.icon} ${item.name} por ${item.price} MC.`)
+          notify(`${item.icon} comprado`, '#c8a84b')
+        }
+      }
+    } else if (cmd.startsWith('/tienda')) {
+      const merchant = st.activeMerchant ? SHOPS[st.activeMerchant] : null
+      if (!merchant) { log('d', 'Acércate a un comerciante primero.'); }
+      else {
+        log('e', `=== ${merchant.name} ${merchant.icon} ===`)
+        merchant.items.forEach(item => log('i', `${item.icon} ${item.name} — ${item.price} MC  /comprar ${item.id}`))
+      }
     }
 
     st.termInput = ''
@@ -650,9 +728,9 @@ export default function GamePage() {
       const v = dlg.target
       if (v.items.length > 0 && S.current.p && S.current.p.inv.length < 5) {
         const item = v.items.shift()!
-        S.current.p.inv.push(item)
-        log('e', `${v.name} te da ${ITEMS[item]?.icon || item}.`)
-        notify(`+${ITEMS[item]?.icon || item}`, '#c8a84b')
+        S.current.droppedItems.push({ x: S.current.p.x + (Math.random()-0.5)*T*2, y: S.current.p.y - T, item, bouncePhase: 0 })
+        log('e', `${v.name} deja ${ITEMS[item]?.icon || item} en el piso.`)
+        notify(`${ITEMS[item]?.icon || item} en el suelo`, '#c8a84b')
       }
       dlg.active = false
     } else if (opt.action === 'stay_home' && dlg.target) {
@@ -730,59 +808,82 @@ export default function GamePage() {
     const weaponRangeMult = activeWeapon?.rangeMult ?? 1
 
     const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
-    if (p.char === 'frodo' && p.weaponSlot === 'secondary') {
-      p.atkCd = 120
-      p.ringActive = 180
-      p.ringShimmer = 180
-      log('s', 'La capa te hace invisible brevemente.')
-      notify('🧥 INVISIBLE', '#8aaa6e')
-      return
-    }
-    if (p.char === 'gimli' && p.weaponSlot === 'secondary') {
-      p.atkCd = 20
-      p.invT = Math.max(p.invT, 90)
-      log('s', 'El escudo bloquea el golpe.')
-      notify('🛡️ BLOQUEO', '#5a8a3a')
-      return
-    }
 
     if (p.char === 'aragorn') {
-      p.atkCd = 28
-      p.sweepAnim = 20
-      p.sweepAngle = dirAngles[p.dir]
-
-      for (let i = 0; i < 10; i++) {
-        const angle = p.sweepAngle - Math.PI / 3 + (Math.PI * 2 / 3) * (i / 10)
-        S.current.parts.push({
-          x: p.x + Math.cos(angle) * T * 2,
-          y: p.y + Math.sin(angle) * T * 2,
-          vx: Math.cos(angle) * 1.5,
-          vy: Math.sin(angle) * 1.5,
-          color: '#c8a84b',
-          life: 15,
-          maxLife: 15,
-        })
+      if (p.weaponSlot === 'secondary') {
+        // Arco: flecha larga recto hacia adelante
+        p.atkCd = 45
+        p.daggerAnim = 10
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 8; i++) {
+          const angle = dirAngles[p.dir] + (Math.random()-0.5)*0.15
+          S.current.parts.push({
+            x: p.x + Math.cos(angle) * T,
+            y: p.y + Math.sin(angle) * T,
+            vx: Math.cos(angle) * 6,
+            vy: Math.sin(angle) * 6,
+            color: '#d4a820', life: 14, maxLife: 14,
+          })
+        }
+      } else {
+        // Espada: sweep
+        p.atkCd = 28
+        p.sweepAnim = 20
+        p.sweepAngle = dirAngles[p.dir]
+        for (let i = 0; i < 10; i++) {
+          const angle = p.sweepAngle - Math.PI/3 + (Math.PI*2/3) * (i/10)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*2, y: p.y + Math.sin(angle)*T*2,
+            vx: Math.cos(angle)*1.5, vy: Math.sin(angle)*1.5,
+            color: '#c8a84b', life: 15, maxLife: 15,
+          })
+        }
       }
     } else if (p.char === 'frodo') {
-      p.atkCd = 50
-      p.daggerAnim = 14
-      p.daggerAngle = dirAngles[p.dir]
-
-      for (let i = 0; i < 6; i++) {
-        const angle = p.daggerAngle - Math.PI / 4 + (Math.PI / 2) * (i / 6)
-        S.current.parts.push({
-          x: p.x + Math.cos(angle) * T * 1.5,
-          y: p.y + Math.sin(angle) * T * 1.5,
-          vx: Math.cos(angle) * 1.2,
-          vy: Math.sin(angle) * 1.2,
-          color: '#b4d2ff',
-          life: 12,
-          maxLife: 12,
-        })
+      if (p.weaponSlot === 'secondary') {
+        // Daga: golpe muy rápido y corto, partículas grises
+        p.atkCd = 25
+        p.daggerAnim = 7
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 4; i++) {
+          const angle = p.daggerAngle + (Math.random()-0.5)*0.5
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*0.8, y: p.y + Math.sin(angle)*T*0.8,
+            vx: Math.cos(angle)*2, vy: Math.sin(angle)*2,
+            color: '#9a9ab0', life: 8, maxLife: 8,
+          })
+        }
+      } else {
+        // Sting: daga élfica azul
+        p.atkCd = 50
+        p.daggerAnim = 14
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 6; i++) {
+          const angle = p.daggerAngle - Math.PI/4 + (Math.PI/2)*(i/6)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*1.5, y: p.y + Math.sin(angle)*T*1.5,
+            vx: Math.cos(angle)*1.2, vy: Math.sin(angle)*1.2,
+            color: '#b4d2ff', life: 12, maxLife: 12,
+          })
+        }
       }
     } else if (p.char === 'gandalf') {
-      p.atkCd = 90
-      p.staffRayAnim = 12
+      if (p.weaponSlot === 'secondary') {
+        // Glamdring: sweep plateado, cuerpo a cuerpo fuerte
+        p.atkCd = 38
+        p.staffSwingAnim = 18
+        const swingAngle = dirAngles[p.dir]
+        for (let i = 0; i < 10; i++) {
+          const angle = swingAngle - Math.PI/3 + (Math.PI*2/3)*(i/10)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*1.8, y: p.y + Math.sin(angle)*T*1.8,
+            vx: Math.cos(angle)*2, vy: Math.sin(angle)*2,
+            color: '#c0c8e8', life: 16, maxLife: 16,
+          })
+        }
+      } else {
+        p.atkCd = 90
+        p.staffRayAnim = 12
 
       const naz = S.current.nazgul
       if (naz && naz.hp > 0 && naz.state !== 'dying') {
@@ -839,40 +940,67 @@ export default function GamePage() {
         y: p.y + Math.sin(dirAngles[p.dir]) * 3.5 * T
       }
       return
+      }
     }
 
     // Legolas: disparo de flecha a distancia con partículas doradas
     if (p.char === 'legolas') {
-      p.atkCd = 35
-      p.daggerAnim = 12
-      p.daggerAngle = dirAngles[p.dir]
-      for (let i = 0; i < 5; i++) {
-        const angle = p.daggerAngle + (Math.random() - 0.5) * 0.2
-        S.current.parts.push({
-          x: p.x + Math.cos(angle) * T,
-          y: p.y + Math.sin(angle) * T,
-          vx: Math.cos(angle) * 4,
-          vy: Math.sin(angle) * 4,
-          color: '#d4a820',
-          life: 10, maxLife: 10,
-        })
+      if (p.weaponSlot === 'secondary') {
+        // Cuchillos: ataque cuerpo a cuerpo, partículas grises rápidas cortas
+        p.atkCd = 22
+        p.daggerAnim = 8
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 5; i++) {
+          const angle = p.daggerAngle - Math.PI/4 + (Math.PI/2)*(i/5)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*0.9, y: p.y + Math.sin(angle)*T*0.9,
+            vx: Math.cos(angle)*2.5, vy: Math.sin(angle)*2.5,
+            color: '#9a9ab0', life: 9, maxLife: 9,
+          })
+        }
+      } else {
+        // Arco: flecha dorada larga
+        p.atkCd = 35
+        p.daggerAnim = 12
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 5; i++) {
+          const angle = p.daggerAngle + (Math.random()-0.5)*0.2
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T, y: p.y + Math.sin(angle)*T,
+            vx: Math.cos(angle)*4, vy: Math.sin(angle)*4,
+            color: '#d4a820', life: 10, maxLife: 10,
+          })
+        }
       }
     }
-    // Gimli: golpe de hacha en área pequeña, más daño
+    // Gimli: golpe de hacha en ����rea pequeña, más daño
     if (p.char === 'gimli') {
-      p.atkCd = 40
-      p.sweepAnim = 18
-      p.sweepAngle = dirAngles[p.dir]
-      for (let i = 0; i < 8; i++) {
-        const angle = p.sweepAngle - Math.PI / 4 + (Math.PI / 2) * (i / 8)
-        S.current.parts.push({
-          x: p.x + Math.cos(angle) * T * 1.6,
-          y: p.y + Math.sin(angle) * T * 1.6,
-          vx: Math.cos(angle) * 2,
-          vy: Math.sin(angle) * 2,
-          color: '#9a9aaa',
-          life: 14, maxLife: 14,
-        })
+      if (p.weaponSlot === 'secondary') {
+        // Cuchillo: ataque directo rápido
+        p.atkCd = 18
+        p.daggerAnim = 8
+        p.daggerAngle = dirAngles[p.dir]
+        for (let i = 0; i < 4; i++) {
+          const angle = p.daggerAngle + (Math.random()-0.5)*0.3
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*0.7, y: p.y + Math.sin(angle)*T*0.7,
+            vx: Math.cos(angle)*2, vy: Math.sin(angle)*2,
+            color: '#9a9ab0', life: 8, maxLife: 8,
+          })
+        }
+      } else {
+        // Hacha doble: sweep gris metálico
+        p.atkCd = 40
+        p.sweepAnim = 18
+        p.sweepAngle = dirAngles[p.dir]
+        for (let i = 0; i < 8; i++) {
+          const angle = p.sweepAngle - Math.PI/4 + (Math.PI/2)*(i/8)
+          S.current.parts.push({
+            x: p.x + Math.cos(angle)*T*1.6, y: p.y + Math.sin(angle)*T*1.6,
+            vx: Math.cos(angle)*2, vy: Math.sin(angle)*2,
+            color: '#9a9aaa', life: 14, maxLife: 14,
+          })
+        }
       }
     }
 
@@ -908,10 +1036,10 @@ export default function GamePage() {
           naz.state = 'dying'
           naz.deathFrame = 0
           const goldDrop = 5 + naz.waveNum * 2
-          p.gold += goldDrop
-          S.current.fx.push({ x: naz.x, y: naz.y - 20, text: `+${goldDrop} MC`, color: '#c8a84b', vy: -1.2, life: 50 })
+          S.current.droppedItems.push({ x: naz.x + (Math.random()-0.5)*T, y: naz.y + (Math.random()-0.5)*T, item: 'gold', bouncePhase: 0, amount: goldDrop })
+          S.current.fx.push({ x: naz.x, y: naz.y - 20, text: `💰 ${goldDrop} MC`, color: '#c8a84b', vy: -1.2, life: 50 })
           log('e', '¡El Nazgûl cae!')
-          log('s', `+${goldDrop} MC obtenidos`)
+          log('s', `💰 ${goldDrop} MC en el piso — ¡recógelos!`)
         }
       }
     }
@@ -920,6 +1048,16 @@ export default function GamePage() {
   const tryInteract = useCallback(() => {
     if (!S.current || !S.current.p) return
     const p = S.current.p
+
+    // Detectar merchant cercano
+    for (const m of S.current.merchants) {
+      const dx = m.x - p.x, dy = m.y - p.y
+      if (Math.sqrt(dx*dx + dy*dy) < 2.5 * T) {
+        S.current.activeMerchant = m.id
+        setShopPanelOpen(true)
+        return
+      }
+    }
 
     const g = S.current.gandalfAlly
     if (g && !g.talked) {
@@ -941,6 +1079,26 @@ export default function GamePage() {
       }
     }
   }, [openGandalfDlg, openVillagerDlg])
+
+  const pickupNearbyItem = useCallback(() => {
+    if (!S.current?.p) return
+    const nearby = getNearbyItem()
+    if (!nearby) { tryInteract(); return }
+    const idx = S.current.droppedItems.indexOf(nearby)
+    if (idx < 0) return
+    if (nearby.item === 'gold') {
+      const amt = nearby.amount || 5
+      S.current.p.gold += amt
+      log('s', `Recoges 💰 ${amt} MC. Total: ${S.current.p.gold} MC`)
+      notify(`+💰 ${amt} MC`, '#c8a84b')
+    } else {
+      S.current.p.inv.push(nearby.item)
+      log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`)
+      notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b')
+    }
+    S.current.droppedItems.splice(idx, 1)
+    forceUpdate(n => n + 1)
+  }, [getNearbyItem, tryInteract, log, notify])
 
   const moveToward = useCallback((entity: { x: number; y: number; dir: Dir }, tx: number, ty: number, spd: number) => {
     const dx = tx - entity.x, dy = ty - entity.y
@@ -977,6 +1135,7 @@ export default function GamePage() {
     if (p.sweepAnim > 0) p.sweepAnim--
     if (p.daggerAnim > 0) p.daggerAnim--
     if (p.staffRayAnim > 0) p.staffRayAnim--
+    if (p.staffSwingAnim > 0) p.staffSwingAnim--
 
     if (st.frameCount === 180 && st.gameMode === 'horde') {
       log('i', 'Habla con Gandalf antes de que llegue el Nazgûl.')
@@ -1049,14 +1208,6 @@ export default function GamePage() {
 
     st.droppedItems = st.droppedItems.filter(di => {
       di.bouncePhase += 0.1
-      const pdx = di.x - p.x, pdy = di.y - p.y
-      const pdist = Math.sqrt(pdx * pdx + pdy * pdy)
-      if (pdist < T * 1.5) {
-        p.inv.push(di.item)
-        log('s', `Recoges ${ITEMS[di.item]?.icon || di.item}`)
-        notify(`+${ITEMS[di.item]?.icon || '?'}`, '#c8a84b')
-        return false
-      }
       return true
     })
 
@@ -1455,7 +1606,8 @@ export default function GamePage() {
     px: number,
     py: number,
     sc: number,
-    extraColor?: string
+    extraColor?: string,
+    weaponSlot?: 'main' | 'secondary'
   ) => {
     const legAnim = [-1, 0, 1, 0][frame % 4]
     ctx.save()
@@ -1484,12 +1636,29 @@ export default function GamePage() {
       ctx.fillRect(-4 * sc, -15 * sc, 8 * sc, 3 * sc)
       ctx.fillRect(-5 * sc, -13 * sc, 2 * sc, 3 * sc)
       ctx.fillRect(3 * sc, -13 * sc, 2 * sc, 3 * sc)
+      // Arma en mano según slot
+      if (weaponSlot === 'secondary') {
+        ctx.fillStyle = '#8a8890'
+        ctx.fillRect(5 * sc, -6 * sc, 1.5 * sc, 8 * sc)
+        ctx.fillStyle = '#6a4010'
+        ctx.fillRect(4 * sc, -7 * sc, 3 * sc, 2 * sc)
+      } else {
+        ctx.fillStyle = '#b4d2ff'
+        ctx.fillRect(5 * sc, -8 * sc, 1.5 * sc, 10 * sc)
+      }
       ctx.fillStyle = '#2a1810'
       if (dir === 'down' || dir === 'left' || dir === 'right') {
         ctx.fillRect(-2 * sc, -11 * sc, 1.5 * sc, 1.5 * sc)
         ctx.fillRect(1 * sc, -11 * sc, 1.5 * sc, 1.5 * sc)
       }
     } else if (char === 'aragorn') {
+      // Arco si secondary
+      if (weaponSlot === 'secondary') {
+        ctx.strokeStyle = '#6a4010'; ctx.lineWidth = 1.5 * sc
+        ctx.beginPath(); ctx.arc(-9 * sc, -6 * sc, 10 * sc, -0.7, 0.7); ctx.stroke()
+        ctx.strokeStyle = '#c8a84b'; ctx.lineWidth = 0.8 * sc
+        ctx.beginPath(); ctx.moveTo(-9 * sc, -15 * sc); ctx.lineTo(-9 * sc, 3 * sc); ctx.stroke()
+      }
       ctx.fillStyle = '#4a3a20'
       ctx.fillRect(-6 * sc, -8 * sc, 12 * sc, 12 * sc)
       ctx.fillStyle = '#6a5a30'
@@ -1529,12 +1698,22 @@ export default function GamePage() {
       ctx.fillRect(2 * sc, 0, 2 * sc, 6 * sc)
       ctx.fillStyle = '#4a4040'
       ctx.fillRect(-5 * sc, -2 * sc, 10 * sc, 2 * sc)
-      ctx.fillStyle = '#6a4a20'
-      ctx.fillRect(7 * sc, -18 * sc, 2 * sc, 24 * sc)
-      ctx.fillStyle = '#c8a84b'
-      ctx.beginPath()
-      ctx.arc(8 * sc, -19 * sc, 2.5 * sc, 0, Math.PI * 2)
-      ctx.fill()
+      if (weaponSlot === 'secondary') {
+        // Glamdring — espada élfica larga plateada
+        ctx.fillStyle = '#9a9ab8'
+        ctx.fillRect(7 * sc, -22 * sc, 2 * sc, 26 * sc)
+        ctx.fillStyle = '#c8c8e0'
+        ctx.fillRect(6 * sc, -22 * sc, 4 * sc, 3 * sc)
+        ctx.fillStyle = '#c8a84b'
+        ctx.fillRect(5 * sc, -10 * sc, 6 * sc, 2 * sc)
+      } else {
+        ctx.fillStyle = '#6a4a20'
+        ctx.fillRect(7 * sc, -18 * sc, 2 * sc, 24 * sc)
+        ctx.fillStyle = '#c8a84b'
+        ctx.beginPath()
+        ctx.arc(8 * sc, -19 * sc, 2.5 * sc, 0, Math.PI * 2)
+        ctx.fill()
+      }
       ctx.fillStyle = '#d4a080'
       ctx.fillRect(-4 * sc, -18 * sc, 8 * sc, 8 * sc)
       ctx.fillStyle = '#e8e8e0'
@@ -1575,7 +1754,7 @@ export default function GamePage() {
       ctx.fillRect(-10 * sc, -5 * sc, 4 * sc, 8 * sc)
       ctx.fillRect(6 * sc, -5 * sc, 4 * sc, 8 * sc)
     } else if (char === 'legolas') {
-      // Capa verde élfica
+      // Cuerpo élfico
       ctx.fillStyle = '#3a5820'
       ctx.fillRect(-5 * sc, -8 * sc, 10 * sc, 11 * sc)
       ctx.fillStyle = '#2a4010'
@@ -1589,18 +1768,24 @@ export default function GamePage() {
       ctx.fillRect(-4 * sc, -17 * sc, 8 * sc, 3 * sc)
       ctx.fillRect(-4 * sc, -14 * sc, 2 * sc, 8 * sc)
       ctx.fillRect(2 * sc, -14 * sc, 2 * sc, 8 * sc)
-      // Arco
-      ctx.strokeStyle = '#6a4010'
-      ctx.lineWidth = 1.5 * sc
-      ctx.beginPath()
-      ctx.arc(8 * sc, -8 * sc, 10 * sc, -0.8, 0.8)
-      ctx.stroke()
-      ctx.strokeStyle = '#c8c870'
-      ctx.lineWidth = 0.8 * sc
-      ctx.beginPath()
-      ctx.moveTo(8 * sc, -17 * sc)
-      ctx.lineTo(8 * sc, 1 * sc)
-      ctx.stroke()
+      if (weaponSlot === 'secondary') {
+        // Cuchillos élficos — dos dagas cruzadas
+        ctx.strokeStyle = '#9a9ab0'
+        ctx.lineWidth = 1.5 * sc
+        ctx.beginPath(); ctx.moveTo(5 * sc, -14 * sc); ctx.lineTo(10 * sc, -4 * sc); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(10 * sc, -14 * sc); ctx.lineTo(5 * sc, -4 * sc); ctx.stroke()
+        ctx.fillStyle = '#6a4010'
+        ctx.fillRect(6 * sc, -15 * sc, 2 * sc, 2 * sc)
+        ctx.fillRect(9 * sc, -15 * sc, 2 * sc, 2 * sc)
+      } else {
+        // Arco élfico
+        ctx.strokeStyle = '#6a4010'
+        ctx.lineWidth = 1.5 * sc
+        ctx.beginPath(); ctx.arc(8 * sc, -8 * sc, 10 * sc, -0.8, 0.8); ctx.stroke()
+        ctx.strokeStyle = '#c8c870'
+        ctx.lineWidth = 0.8 * sc
+        ctx.beginPath(); ctx.moveTo(8 * sc, -17 * sc); ctx.lineTo(8 * sc, 1 * sc); ctx.stroke()
+      }
       // Ojos
       ctx.fillStyle = '#1a2808'
       if (dir === 'down' || dir === 'left' || dir === 'right') {
@@ -1627,11 +1812,21 @@ export default function GamePage() {
       ctx.fillStyle = '#8a8890'
       ctx.fillRect(-5 * sc, -15 * sc, 10 * sc, 2 * sc)
       ctx.fillRect(-6 * sc, -13 * sc, 12 * sc, 3 * sc)
-      // Hacha sobre hombro
-      ctx.fillStyle = '#8a8890'
-      ctx.fillRect(6 * sc, -12 * sc, 2 * sc, 14 * sc)
-      ctx.fillStyle = '#c08020'
-      ctx.fillRect(4 * sc, -14 * sc, 6 * sc, 4 * sc)
+      // Arma según slot
+      if (weaponSlot === 'secondary') {
+        // Cuchillo de combate enano
+        ctx.strokeStyle = '#9a9ab0'
+        ctx.lineWidth = 2 * sc
+        ctx.beginPath(); ctx.moveTo(5 * sc, -12 * sc); ctx.lineTo(9 * sc, -2 * sc); ctx.stroke()
+        ctx.fillStyle = '#6a4010'
+        ctx.fillRect(4 * sc, -14 * sc, 3 * sc, 2 * sc)
+      } else {
+        // Hacha doble sobre hombro
+        ctx.fillStyle = '#8a8890'
+        ctx.fillRect(6 * sc, -12 * sc, 2 * sc, 14 * sc)
+        ctx.fillStyle = '#c08020'
+        ctx.fillRect(4 * sc, -14 * sc, 6 * sc, 4 * sc)
+      }
       // Ojos profundos
       ctx.fillStyle = '#1a0800'
       if (dir !== 'up') {
@@ -2015,7 +2210,49 @@ export default function GamePage() {
       }
     }
 
+    // Render merchants
+    if (st.merchants && st.merchants.length > 0) {
+      for (const m of st.merchants) {
+        const mx = m.x - sx, my = m.y - sy
+        const shop = SHOPS[m.id]
+        // Cuerpo hobbit genérico con color de tienda
+        ctx.fillStyle = shop.color
+        ctx.fillRect(mx - 4 * 1.5, my - 6 * 1.5, 8 * 1.5, 8 * 1.5)
+        ctx.fillStyle = '#d4a070'
+        ctx.fillRect(mx - 3 * 1.5, my - 12 * 1.5, 6 * 1.5, 6 * 1.5)
+        ctx.fillStyle = '#3a2010'
+        ctx.fillRect(mx - 3 * 1.5, my - 13 * 1.5, 6 * 1.5, 2 * 1.5)
+        // Ícono sobre la cabeza
+        ctx.font = '12px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText(shop.icon, mx, my - 18)
+        // Nombre debajo
+        ctx.font = '7px monospace'
+        ctx.fillStyle = '#c8a84b'
+        ctx.fillText(shop.name.split(' ')[0], mx, my + 16)
+        // Indicador E cuando jugador está cerca
+        if (p) {
+          const pdx = m.x - p.x, pdy = m.y - p.y
+          if (Math.sqrt(pdx*pdx + pdy*pdy) < 2.5 * T) {
+            ctx.font = 'bold 10px monospace'
+            ctx.fillStyle = '#c8a84b'
+            ctx.fillText('[E]', mx, my - 28)
+          }
+        }
+      }
+    }
+
     const px = p.x - sx, py = p.y - sy
+
+    if (p.char === 'gandalf' && p.staffSwingAnim > 0) {
+      const progress = p.staffSwingAnim / 18
+      const renderDirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
+      ctx.strokeStyle = `rgba(192,200,232,${progress * 0.8})`
+      ctx.lineWidth = 5
+      ctx.beginPath()
+      ctx.arc(px, py, T * 1.8, renderDirAngles[p.dir] - Math.PI/3, renderDirAngles[p.dir] + Math.PI/3)
+      ctx.stroke()
+    }
 
     if (p.char === 'aragorn' && p.sweepAnim > 0) {
       const progress = p.sweepAnim / 20
@@ -2092,13 +2329,13 @@ export default function GamePage() {
       if (p.deathFrame % 4 < 2) {
         ctx.globalAlpha = 0.5
       }
-      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2)
+      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2, undefined, p.weaponSlot)
       ctx.restore()
     } else if (p.deathFrame === 0) {
       if (p.invT > 0 && p.invT % 6 < 3) {
         ctx.globalAlpha = 0.5
       }
-      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2)
+      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2, undefined, p.weaponSlot)
     }
     ctx.globalAlpha = 1
 
@@ -2300,8 +2537,6 @@ export default function GamePage() {
     ? MOD_COMMANDS.filter(m => m.cmd.startsWith(S.current!.termInput))
     : MOD_COMMANDS
 
-  const [invPanelOpen, setInvPanelOpen] = useState(false)
-
   return (
     <div
       ref={rootRef}
@@ -2332,6 +2567,9 @@ export default function GamePage() {
               </div>
               <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
+              </div>
+              <div className="text-[#c8a84b] text-xs font-medium">
+                💰 {S.current.p.gold} MC
               </div>
               {S.current.p && (
                 <div className="flex items-center gap-1 mt-0.5">
@@ -2460,6 +2698,98 @@ export default function GamePage() {
       {screen === 'game' && S.current && (
         <div className="absolute bottom-0 left-0 right-0 px-2 pb-2 pt-2 flex items-end justify-between gap-2 z-10" style={{ background: 'linear-gradient(to top, rgba(10,8,4,0.92) 70%, transparent)' }}>
 
+          {shopPanelOpen && S.current?.activeMerchant && S.current?.p && (() => {
+            const shop = SHOPS[S.current!.activeMerchant!]
+            if (!shop) return null
+            const itemCounts = S.current!.p!.inv.reduce((acc: Record<string,number>, item) => { acc[item] = (acc[item]||0)+1; return acc }, {})
+            return (
+            <div
+              className="absolute bottom-full left-0 right-0 mx-2 mb-1 rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
+              style={{ background: 'rgba(10,12,8,0.97)' }}
+            >
+              <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(200,168,75,0.15)]">
+                <span className="text-[#c8a84b] text-xs font-bold">{shop.icon} {shop.name}</span>
+                <button onTouchStart={(e) => { e.preventDefault(); setShopPanelOpen(false) }} onClick={() => setShopPanelOpen(false)} className="text-[#5a6a3a] text-xs px-1 hover:text-[#c8a84b]">✕</button>
+              </div>
+              <div className="flex gap-0 border-b border-[rgba(200,168,75,0.1)]">
+                <div className="flex-1 px-2 py-1 text-[#5a6a3a] text-[9px] font-bold tracking-wider">COMPRAR</div>
+                <div className="flex-1 px-2 py-1 text-[#5a6a3a] text-[9px] font-bold tracking-wider border-l border-[rgba(200,168,75,0.1)]">VENDER</div>
+              </div>
+              <div className="flex">
+                <div className="flex-1 flex flex-wrap gap-1.5 p-2">
+                  {shop.items.map(shopItem => (
+                    <button
+                      key={shopItem.id}
+                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation();
+                        if ((S.current!.p!.gold ?? 0) >= shopItem.price) {
+                          S.current!.p!.gold -= shopItem.price
+                          S.current!.p!.inv.push(shopItem.id)
+                          log('s', `Comprás ${shopItem.icon} ${shopItem.name} — ${shopItem.price} MC`)
+                          notify(`${shopItem.icon} comprado`, '#c8a84b')
+                          forceUpdate(n => n + 1)
+                        } else {
+                          log('d', `No tenés MC suficiente. Necesitás ${shopItem.price} MC.`)
+                        }
+                      }}
+                      onClick={(e) => { e.preventDefault();
+                        if ((S.current!.p!.gold ?? 0) >= shopItem.price) {
+                          S.current!.p!.gold -= shopItem.price
+                          S.current!.p!.inv.push(shopItem.id)
+                          log('s', `Comprás ${shopItem.icon} ${shopItem.name} — ${shopItem.price} MC`)
+                          notify(`${shopItem.icon} comprado`, '#c8a84b')
+                          forceUpdate(n => n + 1)
+                        } else {
+                          log('d', `No tenés MC suficiente. Necesitás ${shopItem.price} MC.`)
+                        }
+                      }}
+                      className="relative flex flex-col items-center gap-1 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all hover:border-[rgba(200,168,75,0.4)]"
+                    >
+                      <span style={{ fontSize: '18px' }}>{shopItem.icon}</span>
+                      <span className="text-[#c8a84b] text-[8px] font-bold">{shopItem.price} MC</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="w-px bg-[rgba(200,168,75,0.1)]" />
+                <div className="flex-1 flex flex-wrap gap-1.5 p-2">
+                  {Object.entries(itemCounts).map(([item, count]) => (
+                    <button
+                      key={item}
+                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation();
+                        const idx = S.current!.p!.inv.indexOf(item)
+                        if (idx >= 0) {
+                          const price = Math.floor((ITEMS[item]?.desc?.length || 10) * 2)
+                          S.current!.p!.gold += price
+                          S.current!.p!.inv.splice(idx, 1)
+                          log('s', `Vendés ${ITEMS[item]?.icon || item} por ${price} MC`)
+                          notify(`+${price} MC`, '#c8a84b')
+                          forceUpdate(n => n + 1)
+                        }
+                      }}
+                      onClick={(e) => { e.preventDefault();
+                        const idx = S.current!.p!.inv.indexOf(item)
+                        if (idx >= 0) {
+                          const price = Math.floor((ITEMS[item]?.desc?.length || 10) * 2)
+                          S.current!.p!.gold += price
+                          S.current!.p!.inv.splice(idx, 1)
+                          log('s', `Vendés ${ITEMS[item]?.icon || item} por ${price} MC`)
+                          notify(`+${price} MC`, '#c8a84b')
+                          forceUpdate(n => n + 1)
+                        }
+                      }}
+                      className="relative flex flex-col items-center gap-1 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all hover:border-[rgba(200,168,75,0.4)]"
+                    >
+                      <span style={{ fontSize: '18px' }}>{ITEMS[item]?.icon || '?'}</span>
+                      <span className="text-[#8aaa6e] text-[8px] font-bold">Vender</span>
+                      {count > 1 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#c8a84b] text-[#1a1408] text-[9px] font-bold flex items-center justify-center">{count}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="px-2 py-1.5 text-[#5a6a3a] text-[8px] border-t border-[rgba(200,168,75,0.1)] text-right">Tu oro: 💰 {S.current.p.gold} MC</div>
+            </div>
+            )
+          })()}
+
           {invPanelOpen && S.current?.p && (
             <div
               className="absolute bottom-full right-3 mb-1 w-[200px] rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
@@ -2473,15 +2803,16 @@ export default function GamePage() {
                 <div className="text-[#5a6a3a] text-xs text-center py-3">Vacío</div>
               ) : (
                 <div className="flex flex-wrap gap-2 p-2">
-                  {S.current.p.inv.map((item, i) => (
+                  {Object.entries(S.current.p.inv.reduce((acc: Record<string,number>, item) => { acc[item] = (acc[item]||0)+1; return acc }, {})).map(([item, count]) => (
                     <button
-                      key={i}
-                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); useItem(i); setInvPanelOpen(false) }}
-                      onClick={() => { useItem(i); setInvPanelOpen(false) }}
-                      className="flex flex-col items-center gap-0.5 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all"
+                      key={item}
+                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const idx = S.current!.p!.inv.indexOf(item); useItem(idx); setInvPanelOpen(false) }}
+                      onClick={() => { const idx = S.current!.p!.inv.indexOf(item); useItem(idx); setInvPanelOpen(false) }}
+                      className="relative flex flex-col items-center gap-0.5 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all"
                     >
                       <span style={{ fontSize: '20px' }}>{ITEMS[item]?.icon || '?'}</span>
                       <span className="text-[#c8a84b] text-[9px] capitalize">{item}</span>
+                      {count > 1 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#c8a84b] text-[#1a1408] text-[9px] font-bold flex items-center justify-center">{count}</span>}
                     </button>
                   ))}
                 </div>
@@ -2561,8 +2892,8 @@ export default function GamePage() {
               >🍞</button>
 
               <button
-                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const nearby = getNearbyItem(); if (nearby) { const idx = S.current!.droppedItems.indexOf(nearby); if (idx >= 0) { S.current!.p!.inv.push(nearby.item); log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`); notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b'); S.current!.droppedItems.splice(idx, 1); forceUpdate(n => n + 1); } } else { tryInteract(); } }}
-                onClick={(e) => { e.preventDefault(); const nearby = getNearbyItem(); if (nearby) { const idx = S.current!.droppedItems.indexOf(nearby); if (idx >= 0) { S.current!.p!.inv.push(nearby.item); log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`); notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b'); S.current!.droppedItems.splice(idx, 1); forceUpdate(n => n + 1); } } else { tryInteract(); } }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); pickupNearbyItem() }}
+                onClick={(e) => { e.preventDefault(); pickupNearbyItem() }}
                 className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center text-lg active:scale-95 transition-all ${getNearbyItem() ? 'bg-[#1a2a10] border-[#3a5a20]' : 'bg-[#102030] border-[#2a3a4a] active:bg-[#1a2a3a]'}`}
                 title={getNearbyItem() ? 'Recoger item' : 'Hablar'}
               >{getNearbyItem() ? '📦' : '💬'}</button>
