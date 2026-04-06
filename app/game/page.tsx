@@ -18,11 +18,11 @@ const CHARS: Record<string, { name: string; spd: number; maxhp: number; dmg: num
 
 // ============ ITEMS ============
 const WEAPONS: Record<string, { main: { icon: string; label: string; dmgMult: number; rangeMult: number }; secondary: { icon: string; label: string; dmgMult: number; rangeMult: number } }> = {
-  frodo:   { main: { icon: '🗡️', label: 'Sting',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🧥', label: 'Capa',     dmgMult: 0.5, rangeMult: 0.8 } },
-  aragorn: { main: { icon: '⚔️', label: 'Andúril',  dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🏹', label: 'Arco',     dmgMult: 0.8, rangeMult: 2.0 } },
-  gandalf: { main: { icon: '✦',  label: 'Bastón',   dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🌟', label: 'Cayado',   dmgMult: 1.5, rangeMult: 0.6 } },
-  legolas: { main: { icon: '🏹', label: 'Arco',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🗡️', label: 'Cuchillos',dmgMult: 0.8, rangeMult: 0.4 } },
-  gimli:   { main: { icon: '🪓', label: 'Hacha',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🛡️', label: 'Escudo',   dmgMult: 0.3, rangeMult: 0.5 } },
+  frodo:   { main: { icon: '🗡️', label: 'Sting',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Daga',      dmgMult: 0.7, rangeMult: 0.6 } },
+  aragorn: { main: { icon: '⚔️', label: 'Andúril',   dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🏹', label: 'Arco',      dmgMult: 0.7, rangeMult: 2.5 } },
+  gandalf: { main: { icon: '✦',  label: 'Bastón',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '⚔️', label: 'Glamdring', dmgMult: 1.4, rangeMult: 0.7 } },
+  legolas: { main: { icon: '🏹', label: 'Arco',      dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Cuchillos', dmgMult: 0.9, rangeMult: 0.5 } },
+  gimli:   { main: { icon: '🪓', label: 'Hacha',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Cuchillo',  dmgMult: 0.6, rangeMult: 0.7 } },
 }
 
 const ITEMS: Record<string, { icon: string; desc: string }> = {
@@ -730,21 +730,6 @@ export default function GamePage() {
     const weaponRangeMult = activeWeapon?.rangeMult ?? 1
 
     const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
-    if (p.char === 'frodo' && p.weaponSlot === 'secondary') {
-      p.atkCd = 120
-      p.ringActive = 180
-      p.ringShimmer = 180
-      log('s', 'La capa te hace invisible brevemente.')
-      notify('🧥 INVISIBLE', '#8aaa6e')
-      return
-    }
-    if (p.char === 'gimli' && p.weaponSlot === 'secondary') {
-      p.atkCd = 20
-      p.invT = Math.max(p.invT, 90)
-      log('s', 'El escudo bloquea el golpe.')
-      notify('🛡️ BLOQUEO', '#5a8a3a')
-      return
-    }
 
     if (p.char === 'aragorn') {
       p.atkCd = 28
@@ -1455,7 +1440,8 @@ export default function GamePage() {
     px: number,
     py: number,
     sc: number,
-    extraColor?: string
+    extraColor?: string,
+    weaponSlot?: 'main' | 'secondary'
   ) => {
     const legAnim = [-1, 0, 1, 0][frame % 4]
     ctx.save()
@@ -1484,12 +1470,29 @@ export default function GamePage() {
       ctx.fillRect(-4 * sc, -15 * sc, 8 * sc, 3 * sc)
       ctx.fillRect(-5 * sc, -13 * sc, 2 * sc, 3 * sc)
       ctx.fillRect(3 * sc, -13 * sc, 2 * sc, 3 * sc)
+      // Arma en mano según slot
+      if (weaponSlot === 'secondary') {
+        ctx.fillStyle = '#8a8890'
+        ctx.fillRect(5 * sc, -6 * sc, 1.5 * sc, 8 * sc)
+        ctx.fillStyle = '#6a4010'
+        ctx.fillRect(4 * sc, -7 * sc, 3 * sc, 2 * sc)
+      } else {
+        ctx.fillStyle = '#b4d2ff'
+        ctx.fillRect(5 * sc, -8 * sc, 1.5 * sc, 10 * sc)
+      }
       ctx.fillStyle = '#2a1810'
       if (dir === 'down' || dir === 'left' || dir === 'right') {
         ctx.fillRect(-2 * sc, -11 * sc, 1.5 * sc, 1.5 * sc)
         ctx.fillRect(1 * sc, -11 * sc, 1.5 * sc, 1.5 * sc)
       }
     } else if (char === 'aragorn') {
+      // Arco si secondary
+      if (weaponSlot === 'secondary') {
+        ctx.strokeStyle = '#6a4010'; ctx.lineWidth = 1.5 * sc
+        ctx.beginPath(); ctx.arc(-9 * sc, -6 * sc, 10 * sc, -0.7, 0.7); ctx.stroke()
+        ctx.strokeStyle = '#c8a84b'; ctx.lineWidth = 0.8 * sc
+        ctx.beginPath(); ctx.moveTo(-9 * sc, -15 * sc); ctx.lineTo(-9 * sc, 3 * sc); ctx.stroke()
+      }
       ctx.fillStyle = '#4a3a20'
       ctx.fillRect(-6 * sc, -8 * sc, 12 * sc, 12 * sc)
       ctx.fillStyle = '#6a5a30'
@@ -1529,12 +1532,22 @@ export default function GamePage() {
       ctx.fillRect(2 * sc, 0, 2 * sc, 6 * sc)
       ctx.fillStyle = '#4a4040'
       ctx.fillRect(-5 * sc, -2 * sc, 10 * sc, 2 * sc)
-      ctx.fillStyle = '#6a4a20'
-      ctx.fillRect(7 * sc, -18 * sc, 2 * sc, 24 * sc)
-      ctx.fillStyle = '#c8a84b'
-      ctx.beginPath()
-      ctx.arc(8 * sc, -19 * sc, 2.5 * sc, 0, Math.PI * 2)
-      ctx.fill()
+      if (weaponSlot === 'secondary') {
+        // Glamdring — espada élfica larga plateada
+        ctx.fillStyle = '#9a9ab8'
+        ctx.fillRect(7 * sc, -22 * sc, 2 * sc, 26 * sc)
+        ctx.fillStyle = '#c8c8e0'
+        ctx.fillRect(6 * sc, -22 * sc, 4 * sc, 3 * sc)
+        ctx.fillStyle = '#c8a84b'
+        ctx.fillRect(5 * sc, -10 * sc, 6 * sc, 2 * sc)
+      } else {
+        ctx.fillStyle = '#6a4a20'
+        ctx.fillRect(7 * sc, -18 * sc, 2 * sc, 24 * sc)
+        ctx.fillStyle = '#c8a84b'
+        ctx.beginPath()
+        ctx.arc(8 * sc, -19 * sc, 2.5 * sc, 0, Math.PI * 2)
+        ctx.fill()
+      }
       ctx.fillStyle = '#d4a080'
       ctx.fillRect(-4 * sc, -18 * sc, 8 * sc, 8 * sc)
       ctx.fillStyle = '#e8e8e0'
@@ -1575,7 +1588,7 @@ export default function GamePage() {
       ctx.fillRect(-10 * sc, -5 * sc, 4 * sc, 8 * sc)
       ctx.fillRect(6 * sc, -5 * sc, 4 * sc, 8 * sc)
     } else if (char === 'legolas') {
-      // Capa verde élfica
+      // Cuerpo élfico
       ctx.fillStyle = '#3a5820'
       ctx.fillRect(-5 * sc, -8 * sc, 10 * sc, 11 * sc)
       ctx.fillStyle = '#2a4010'
@@ -1589,18 +1602,24 @@ export default function GamePage() {
       ctx.fillRect(-4 * sc, -17 * sc, 8 * sc, 3 * sc)
       ctx.fillRect(-4 * sc, -14 * sc, 2 * sc, 8 * sc)
       ctx.fillRect(2 * sc, -14 * sc, 2 * sc, 8 * sc)
-      // Arco
-      ctx.strokeStyle = '#6a4010'
-      ctx.lineWidth = 1.5 * sc
-      ctx.beginPath()
-      ctx.arc(8 * sc, -8 * sc, 10 * sc, -0.8, 0.8)
-      ctx.stroke()
-      ctx.strokeStyle = '#c8c870'
-      ctx.lineWidth = 0.8 * sc
-      ctx.beginPath()
-      ctx.moveTo(8 * sc, -17 * sc)
-      ctx.lineTo(8 * sc, 1 * sc)
-      ctx.stroke()
+      if (weaponSlot === 'secondary') {
+        // Cuchillos élficos — dos dagas cruzadas
+        ctx.strokeStyle = '#9a9ab0'
+        ctx.lineWidth = 1.5 * sc
+        ctx.beginPath(); ctx.moveTo(5 * sc, -14 * sc); ctx.lineTo(10 * sc, -4 * sc); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(10 * sc, -14 * sc); ctx.lineTo(5 * sc, -4 * sc); ctx.stroke()
+        ctx.fillStyle = '#6a4010'
+        ctx.fillRect(6 * sc, -15 * sc, 2 * sc, 2 * sc)
+        ctx.fillRect(9 * sc, -15 * sc, 2 * sc, 2 * sc)
+      } else {
+        // Arco élfico
+        ctx.strokeStyle = '#6a4010'
+        ctx.lineWidth = 1.5 * sc
+        ctx.beginPath(); ctx.arc(8 * sc, -8 * sc, 10 * sc, -0.8, 0.8); ctx.stroke()
+        ctx.strokeStyle = '#c8c870'
+        ctx.lineWidth = 0.8 * sc
+        ctx.beginPath(); ctx.moveTo(8 * sc, -17 * sc); ctx.lineTo(8 * sc, 1 * sc); ctx.stroke()
+      }
       // Ojos
       ctx.fillStyle = '#1a2808'
       if (dir === 'down' || dir === 'left' || dir === 'right') {
@@ -1627,11 +1646,21 @@ export default function GamePage() {
       ctx.fillStyle = '#8a8890'
       ctx.fillRect(-5 * sc, -15 * sc, 10 * sc, 2 * sc)
       ctx.fillRect(-6 * sc, -13 * sc, 12 * sc, 3 * sc)
-      // Hacha sobre hombro
-      ctx.fillStyle = '#8a8890'
-      ctx.fillRect(6 * sc, -12 * sc, 2 * sc, 14 * sc)
-      ctx.fillStyle = '#c08020'
-      ctx.fillRect(4 * sc, -14 * sc, 6 * sc, 4 * sc)
+      // Arma según slot
+      if (weaponSlot === 'secondary') {
+        // Cuchillo de combate enano
+        ctx.strokeStyle = '#9a9ab0'
+        ctx.lineWidth = 2 * sc
+        ctx.beginPath(); ctx.moveTo(5 * sc, -12 * sc); ctx.lineTo(9 * sc, -2 * sc); ctx.stroke()
+        ctx.fillStyle = '#6a4010'
+        ctx.fillRect(4 * sc, -14 * sc, 3 * sc, 2 * sc)
+      } else {
+        // Hacha doble sobre hombro
+        ctx.fillStyle = '#8a8890'
+        ctx.fillRect(6 * sc, -12 * sc, 2 * sc, 14 * sc)
+        ctx.fillStyle = '#c08020'
+        ctx.fillRect(4 * sc, -14 * sc, 6 * sc, 4 * sc)
+      }
       // Ojos profundos
       ctx.fillStyle = '#1a0800'
       if (dir !== 'up') {
@@ -2092,13 +2121,13 @@ export default function GamePage() {
       if (p.deathFrame % 4 < 2) {
         ctx.globalAlpha = 0.5
       }
-      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2)
+      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2, undefined, p.weaponSlot)
       ctx.restore()
     } else if (p.deathFrame === 0) {
       if (p.invT > 0 && p.invT % 6 < 3) {
         ctx.globalAlpha = 0.5
       }
-      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2)
+      drawSprite(ctx, p.char, p.dir, p.frame, px, py, 2, undefined, p.weaponSlot)
     }
     ctx.globalAlpha = 1
 
