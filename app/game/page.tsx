@@ -68,6 +68,8 @@ const MOD_COMMANDS = [
   { cmd: '/modo explorar', desc: 'Modo exploración libre' },
   { cmd: '/nazgul 1', desc: 'Spawna 1 Nazgûl' },
   { cmd: '/nazgul 3', desc: 'Spawna 3 Nazgûl' },
+  { cmd: '/tienda', desc: 'Ver productos del comerciante' },
+  { cmd: '/comprar lembas', desc: 'Comprar item al comerciante' },
 ]
 
 // ============ TYPES ============
@@ -168,6 +170,14 @@ interface Player {
   weaponSlot: 'main' | 'secondary'
 }
 
+interface Merchant {
+  id: string
+  x: number
+  y: number
+  dir: Dir
+  frame: number
+}
+
 interface FX {
   x: number
   y: number
@@ -228,9 +238,46 @@ interface GameState {
   screenFlash: number
   groundMarks: { x: number; y: number; alpha: number }[]
   gamePaused: boolean
+  merchants: Merchant[]
+  activeMerchant: string | null
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
+
+const SHOPS: Record<string, { name: string; icon: string; color: string; items: { id: string; name: string; icon: string; price: number; type: 'weapon'|'armor'|'food'|'potion' }[] }> = {
+  herrero: {
+    name: 'Herrero Bolger', icon: '⚒️', color: '#8a6030',
+    items: [
+      { id: 'espada', name: 'Espada', icon: '⚔️', price: 30, type: 'weapon' },
+      { id: 'hacha', name: 'Hacha', icon: '🪓', price: 35, type: 'weapon' },
+      { id: 'armadura', name: 'Armadura', icon: '🛡️', price: 50, type: 'armor' },
+    ]
+  },
+  ropero: {
+    name: 'Ropero Took', icon: '👔', color: '#6060a0',
+    items: [
+      { id: 'capa_viaje', name: 'Capa viajero', icon: '🧥', price: 20, type: 'armor' },
+      { id: 'botas', name: 'Botas élf.', icon: '👢', price: 25, type: 'armor' },
+      { id: 'capucha', name: 'Capucha', icon: '🎩', price: 15, type: 'armor' },
+    ]
+  },
+  almacenero: {
+    name: 'Sam Gamyi', icon: '🌾', color: '#508030',
+    items: [
+      { id: 'lembas', name: 'Lembas', icon: '🍞', price: 8, type: 'food' },
+      { id: 'manzana', name: 'Manzana', icon: '🍎', price: 3, type: 'food' },
+      { id: 'jarron_miel', name: 'Miel', icon: '🍯', price: 12, type: 'food' },
+    ]
+  },
+  boticario: {
+    name: 'Boticar. Brandy', icon: '⚗️', color: '#208060',
+    items: [
+      { id: 'miruvor', name: 'Miruvor', icon: '🧴', price: 20, type: 'potion' },
+      { id: 'antidoto', name: 'Antídoto', icon: '💊', price: 15, type: 'potion' },
+      { id: 'elixir', name: 'Elixir hp', icon: '🧪', price: 40, type: 'potion' },
+    ]
+  },
+}
 
 const XP_TABLE = [0, 50, 120, 220, 360, 550, 800, 1120, 1520, 2020]
 const XP_REWARDS = { nazgul: 30, villager_saved: 10 }
@@ -472,6 +519,13 @@ export default function GamePage() {
       screenFlash: 0,
       groundMarks: [],
       gamePaused: false,
+      merchants: [
+        { id: 'herrero',    x: 45 * T, y: 28 * T, dir: 'down', frame: 0 },
+        { id: 'ropero',     x: 55 * T, y: 28 * T, dir: 'down', frame: 0 },
+        { id: 'almacenero', x: 45 * T, y: 44 * T, dir: 'down', frame: 0 },
+        { id: 'boticario',  x: 55 * T, y: 44 * T, dir: 'down', frame: 0 },
+      ],
+      activeMerchant: null,
     }
 
     if (mode === 'exploration') {
@@ -583,6 +637,28 @@ export default function GamePage() {
     } else if (cmd.startsWith('/invocar ')) {
       const name = cmd.replace('/invocar ', '')
       log('s', `Invocando a ${name}... (próximamente)`)
+    } else if (cmd.startsWith('/comprar ')) {
+      const itemId = cmd.replace('/comprar ', '').trim()
+      const merchant = st.activeMerchant ? SHOPS[st.activeMerchant] : null
+      if (!merchant) { log('d', 'No hay comerciante cerca. Acércate y habla primero.'); }
+      else {
+        const item = merchant.items.find(i => i.id === itemId)
+        if (!item) { log('d', `${merchant.name} no vende eso.`); }
+        else if ((st.p?.gold ?? 0) < item.price) { log('d', `No tenés MC suficiente. Necesitás ${item.price} MC.`); }
+        else if (st.p) {
+          st.p.gold -= item.price
+          st.p.inv.push(item.id)
+          log('s', `Compraste ${item.icon} ${item.name} por ${item.price} MC.`)
+          notify(`${item.icon} comprado`, '#c8a84b')
+        }
+      }
+    } else if (cmd.startsWith('/tienda')) {
+      const merchant = st.activeMerchant ? SHOPS[st.activeMerchant] : null
+      if (!merchant) { log('d', 'Acércate a un comerciante primero.'); }
+      else {
+        log('e', `=== ${merchant.name} ${merchant.icon} ===`)
+        merchant.items.forEach(item => log('i', `${item.icon} ${item.name} — ${item.price} MC  /comprar ${item.id}`))
+      }
     }
 
     st.termInput = ''
@@ -905,6 +981,17 @@ export default function GamePage() {
   const tryInteract = useCallback(() => {
     if (!S.current || !S.current.p) return
     const p = S.current.p
+
+    // Detectar merchant cercano
+    for (const m of S.current.merchants) {
+      const dx = m.x - p.x, dy = m.y - p.y
+      if (Math.sqrt(dx*dx + dy*dy) < 2.5 * T) {
+        S.current.activeMerchant = m.id
+        const shop = SHOPS[m.id]
+        log('e', `${shop.icon} ${shop.name}: ¡Bienvenido! Escribí /tienda para ver mis productos.`)
+        return
+      }
+    }
 
     const g = S.current.gandalfAlly
     if (g && !g.talked) {
@@ -2040,6 +2127,38 @@ export default function GamePage() {
         if (naz.poweredUp > 0) {
           ctx.fillStyle = '#c82020'
           ctx.fillText(`ALMAS: ${naz.poweredUp}`, nx, ny + 35)
+        }
+      }
+    }
+
+    // Render merchants
+    if (st.merchants && st.merchants.length > 0) {
+      for (const m of st.merchants) {
+        const mx = m.x - sx, my = m.y - sy
+        const shop = SHOPS[m.id]
+        // Cuerpo hobbit genérico con color de tienda
+        ctx.fillStyle = shop.color
+        ctx.fillRect(mx - 4 * 1.5, my - 6 * 1.5, 8 * 1.5, 8 * 1.5)
+        ctx.fillStyle = '#d4a070'
+        ctx.fillRect(mx - 3 * 1.5, my - 12 * 1.5, 6 * 1.5, 6 * 1.5)
+        ctx.fillStyle = '#3a2010'
+        ctx.fillRect(mx - 3 * 1.5, my - 13 * 1.5, 6 * 1.5, 2 * 1.5)
+        // Ícono sobre la cabeza
+        ctx.font = '12px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText(shop.icon, mx, my - 18)
+        // Nombre debajo
+        ctx.font = '7px monospace'
+        ctx.fillStyle = '#c8a84b'
+        ctx.fillText(shop.name.split(' ')[0], mx, my + 16)
+        // Indicador E cuando jugador está cerca
+        if (p) {
+          const pdx = m.x - p.x, pdy = m.y - p.y
+          if (Math.sqrt(pdx*pdx + pdy*pdy) < 2.5 * T) {
+            ctx.font = 'bold 10px monospace'
+            ctx.fillStyle = '#c8a84b'
+            ctx.fillText('[E]', mx, my - 28)
+          }
         }
       }
     }
