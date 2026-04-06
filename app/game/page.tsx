@@ -17,6 +17,14 @@ const CHARS: Record<string, { name: string; spd: number; maxhp: number; dmg: num
 }
 
 // ============ ITEMS ============
+const WEAPONS: Record<string, { main: { icon: string; label: string; dmgMult: number; rangeMult: number }; secondary: { icon: string; label: string; dmgMult: number; rangeMult: number } }> = {
+  frodo:   { main: { icon: '🗡️', label: 'Sting',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🧥', label: 'Capa',     dmgMult: 0.5, rangeMult: 0.8 } },
+  aragorn: { main: { icon: '⚔️', label: 'Andúril',  dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🏹', label: 'Arco',     dmgMult: 0.8, rangeMult: 2.0 } },
+  gandalf: { main: { icon: '✦',  label: 'Bastón',   dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🌟', label: 'Cayado',   dmgMult: 1.5, rangeMult: 0.6 } },
+  legolas: { main: { icon: '🏹', label: 'Arco',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🗡️', label: 'Cuchillos',dmgMult: 0.8, rangeMult: 0.4 } },
+  gimli:   { main: { icon: '🪓', label: 'Hacha',    dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🛡️', label: 'Escudo',   dmgMult: 0.3, rangeMult: 0.5 } },
+}
+
 const ITEMS: Record<string, { icon: string; desc: string }> = {
   lembas: { icon: '🍞', desc: 'Pan élfico. Restaura 3 HP.' },
   anillo: { icon: '💍', desc: 'El Anillo Único. Invisibilidad temporal.' },
@@ -157,6 +165,7 @@ interface Player {
   staffRayTarget: { x: number; y: number } | null
   xp: number
   level: number
+  weaponSlot: 'main' | 'secondary'
 }
 
 interface FX {
@@ -432,6 +441,7 @@ export default function GamePage() {
         staffRayTarget: null,
         xp: 0,
         level: 1,
+        weaponSlot: 'main',
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -702,12 +712,39 @@ export default function GamePage() {
     }
   }, [useItem])
 
+  const doSwapWeapon = useCallback(() => {
+    if (!S.current?.p) return
+    const p = S.current.p
+    p.weaponSlot = p.weaponSlot === 'main' ? 'secondary' : 'main'
+    const w = WEAPONS[p.char]?.[p.weaponSlot]
+    if (w) notify(`${w.icon} ${w.label}`, '#c8a84b')
+    forceUpdate(n => n + 1)
+  }, [])
+
   const doAttack = useCallback(() => {
     if (!S.current || !S.current.p || S.current.dlg.active) return
     const p = S.current.p
     if (p.atkCd > 0) return
+    const activeWeapon = WEAPONS[p.char]?.[p.weaponSlot]
+    const weaponDmgMult = activeWeapon?.dmgMult ?? 1
+    const weaponRangeMult = activeWeapon?.rangeMult ?? 1
 
     const dirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
+    if (p.char === 'frodo' && p.weaponSlot === 'secondary') {
+      p.atkCd = 120
+      p.ringActive = 180
+      p.ringShimmer = 180
+      log('s', 'La capa te hace invisible brevemente.')
+      notify('🧥 INVISIBLE', '#8aaa6e')
+      return
+    }
+    if (p.char === 'gimli' && p.weaponSlot === 'secondary') {
+      p.atkCd = 20
+      p.invT = Math.max(p.invT, 90)
+      log('s', 'El escudo bloquea el golpe.')
+      notify('🛡️ BLOQUEO', '#5a8a3a')
+      return
+    }
 
     if (p.char === 'aragorn') {
       p.atkCd = 28
@@ -846,14 +883,15 @@ export default function GamePage() {
       const dx = naz.x - p.x, dy = naz.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
 
-      let effectiveRange = p.range
-      if (p.char === 'aragorn') effectiveRange = p.range * 1.2
-      if (p.char === 'frodo') effectiveRange = 1.8
-      if (p.char === 'legolas') effectiveRange = 5.0
-      if (p.char === 'gimli') effectiveRange = 1.6
+      let effectiveRange = p.range * weaponRangeMult
+      if (p.char === 'aragorn' && p.weaponSlot === 'main') effectiveRange = p.range * 1.2
+      if (p.char === 'frodo' && p.weaponSlot === 'main') effectiveRange = 1.8
+      if (p.char === 'legolas') effectiveRange = p.weaponSlot === 'main' ? 5.0 : 1.8
+      if (p.char === 'gimli') effectiveRange = p.weaponSlot === 'main' ? 1.6 : 1.2
 
       if (dist < effectiveRange * T) {
-        const dmg = p.char === 'frodo' ? 6 : p.char === 'gimli' ? p.dmg + 3 : p.dmg
+        const baseDmg = p.char === 'frodo' ? 6 : p.char === 'gimli' ? p.dmg + 3 : p.dmg
+        const dmg = Math.max(1, Math.round(baseDmg * weaponDmgMult))
         naz.hp -= dmg
         naz.invT = 10
         S.current.fx.push({
@@ -2472,9 +2510,18 @@ export default function GamePage() {
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); doAttack() }}
                 onClick={(e) => { e.preventDefault(); doAttack() }}
                 className="w-14 h-14 rounded-2xl bg-[#6a1a1a] border-2 border-[#8a2a2a] flex items-center justify-center text-2xl active:bg-[#8a2a2a] active:scale-95 transition-all"
-                title="Atacar"
+                title={`Atacar — ${WEAPONS[S.current.p?.char||'']?.[S.current.p?.weaponSlot||'main']?.label || 'Atacar'}`}
               >
-                {S.current.p?.char === 'gandalf' ? '✦' : '⚔️'}
+                {WEAPONS[S.current.p?.char||'']?.[S.current.p?.weaponSlot||'main']?.icon || '⚔️'}
+              </button>
+
+              <button
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); doSwapWeapon() }}
+                onClick={(e) => { e.preventDefault(); doSwapWeapon() }}
+                className="w-10 h-10 rounded-xl bg-[#1a2010] border-2 border-[#3a4a20] flex items-center justify-center text-lg active:bg-[#2a3020] active:scale-95 transition-all"
+                title="Cambiar arma"
+              >
+                {WEAPONS[S.current.p?.char||'']?.[S.current.p?.weaponSlot === 'main' ? 'secondary' : 'main']?.icon || '🔄'}
               </button>
 
               <button
