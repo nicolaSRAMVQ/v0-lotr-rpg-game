@@ -693,7 +693,6 @@ export default function GamePage() {
         ],
       }
     }
-    g.talked = true
     forceUpdate(n => n + 1)
   }, [log])
 
@@ -736,6 +735,20 @@ export default function GamePage() {
     if (!S.current) return
     const dlg = S.current.dlg
     if (opt.action === 'close') {
+      dlg.active = false
+    } else if (opt.action === 'gandalf_follow') {
+      if (S.current.gandalfAlly) {
+        S.current.gandalfAlly.state = 'following'
+        log('e', 'GANDALF: ¡Por la Comarca! Te seguiré adonde vayas.')
+        notify('✦ Gandalf te sigue ✦', '#e8e0a0')
+      }
+      dlg.active = false
+    } else if (opt.action === 'gandalf_stay') {
+      if (S.current.gandalfAlly) {
+        S.current.gandalfAlly.state = 'idle'
+        log('e', 'GANDALF: Esperaré aquí. Llamame cuando me necesites.')
+        notify('Gandalf patrulla', '#8a8860')
+      }
       dlg.active = false
     } else if (opt.action === 'give_item' && dlg.target) {
       const v = dlg.target
@@ -1083,7 +1096,7 @@ export default function GamePage() {
     }
 
     const g = S.current.gandalfAlly
-    if (g && !g.talked) {
+    if (g) {
       const dx = g.x - p.x, dy = g.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
       if (dist < 2.5 * T) {
