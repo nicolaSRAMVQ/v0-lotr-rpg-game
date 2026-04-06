@@ -971,7 +971,7 @@ export default function GamePage() {
         }
       }
     }
-    // Gimli: golpe de hacha en área pequeña, más daño
+    // Gimli: golpe de hacha en ��rea pequeña, más daño
     if (p.char === 'gimli') {
       if (p.weaponSlot === 'secondary') {
         // Cuchillo: ataque directo rápido
@@ -2245,10 +2245,11 @@ export default function GamePage() {
 
     if (p.char === 'gandalf' && p.staffSwingAnim > 0) {
       const progress = p.staffSwingAnim / 18
+      const renderDirAngles: Record<Dir, number> = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
       ctx.strokeStyle = `rgba(192,200,232,${progress * 0.8})`
       ctx.lineWidth = 5
       ctx.beginPath()
-      ctx.arc(px, py, T * 1.8, dirAngles[p.dir] - Math.PI/3, dirAngles[p.dir] + Math.PI/3)
+      ctx.arc(px, py, T * 1.8, renderDirAngles[p.dir] - Math.PI/3, renderDirAngles[p.dir] + Math.PI/3)
       ctx.stroke()
     }
 
