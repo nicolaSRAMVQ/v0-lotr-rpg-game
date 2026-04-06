@@ -297,6 +297,8 @@ export default function GamePage() {
   const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
   const [, forceUpdate] = useState(0)
   const [isCompact, setIsCompact] = useState(false)
+  const [invPanelOpen, setInvPanelOpen] = useState(false)
+  const [shopPanelOpen, setShopPanelOpen] = useState(false)
 
   const log = useCallback((type: string, msg: string) => {
     if (!S.current) return
@@ -971,7 +973,7 @@ export default function GamePage() {
         }
       }
     }
-    // Gimli: golpe de hacha en ��rea pequeña, más daño
+    // Gimli: golpe de hacha en ����rea pequeña, más daño
     if (p.char === 'gimli') {
       if (p.weaponSlot === 'secondary') {
         // Cuchillo: ataque directo rápido
@@ -1052,8 +1054,7 @@ export default function GamePage() {
       const dx = m.x - p.x, dy = m.y - p.y
       if (Math.sqrt(dx*dx + dy*dy) < 2.5 * T) {
         S.current.activeMerchant = m.id
-        const shop = SHOPS[m.id]
-        log('e', `${shop.icon} ${shop.name}: ¡Bienvenido! Escribí /tienda para ver mis productos.`)
+        setShopPanelOpen(true)
         return
       }
     }
@@ -2698,6 +2699,98 @@ export default function GamePage() {
 
       {screen === 'game' && S.current && (
         <div className="absolute bottom-0 left-0 right-0 px-2 pb-2 pt-2 flex items-end justify-between gap-2 z-10" style={{ background: 'linear-gradient(to top, rgba(10,8,4,0.92) 70%, transparent)' }}>
+
+          {shopPanelOpen && S.current?.activeMerchant && S.current?.p && (() => {
+            const shop = SHOPS[S.current!.activeMerchant!]
+            if (!shop) return null
+            const itemCounts = S.current!.p!.inv.reduce((acc: Record<string,number>, item) => { acc[item] = (acc[item]||0)+1; return acc }, {})
+            return (
+            <div
+              className="absolute bottom-full left-0 right-0 mx-2 mb-1 rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
+              style={{ background: 'rgba(10,12,8,0.97)' }}
+            >
+              <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(200,168,75,0.15)]">
+                <span className="text-[#c8a84b] text-xs font-bold">{shop.icon} {shop.name}</span>
+                <button onTouchStart={(e) => { e.preventDefault(); setShopPanelOpen(false) }} onClick={() => setShopPanelOpen(false)} className="text-[#5a6a3a] text-xs px-1 hover:text-[#c8a84b]">✕</button>
+              </div>
+              <div className="flex gap-0 border-b border-[rgba(200,168,75,0.1)]">
+                <div className="flex-1 px-2 py-1 text-[#5a6a3a] text-[9px] font-bold tracking-wider">COMPRAR</div>
+                <div className="flex-1 px-2 py-1 text-[#5a6a3a] text-[9px] font-bold tracking-wider border-l border-[rgba(200,168,75,0.1)]">VENDER</div>
+              </div>
+              <div className="flex">
+                <div className="flex-1 flex flex-wrap gap-1.5 p-2">
+                  {shop.items.map(shopItem => (
+                    <button
+                      key={shopItem.id}
+                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation();
+                        if ((S.current!.p!.gold ?? 0) >= shopItem.price) {
+                          S.current!.p!.gold -= shopItem.price
+                          S.current!.p!.inv.push(shopItem.id)
+                          log('s', `Comprás ${shopItem.icon} ${shopItem.name} — ${shopItem.price} MC`)
+                          notify(`${shopItem.icon} comprado`, '#c8a84b')
+                          forceUpdate(n => n + 1)
+                        } else {
+                          log('d', `No tenés MC suficiente. Necesitás ${shopItem.price} MC.`)
+                        }
+                      }}
+                      onClick={(e) => { e.preventDefault();
+                        if ((S.current!.p!.gold ?? 0) >= shopItem.price) {
+                          S.current!.p!.gold -= shopItem.price
+                          S.current!.p!.inv.push(shopItem.id)
+                          log('s', `Comprás ${shopItem.icon} ${shopItem.name} — ${shopItem.price} MC`)
+                          notify(`${shopItem.icon} comprado`, '#c8a84b')
+                          forceUpdate(n => n + 1)
+                        } else {
+                          log('d', `No tenés MC suficiente. Necesitás ${shopItem.price} MC.`)
+                        }
+                      }}
+                      className="relative flex flex-col items-center gap-1 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all hover:border-[rgba(200,168,75,0.4)]"
+                    >
+                      <span style={{ fontSize: '18px' }}>{shopItem.icon}</span>
+                      <span className="text-[#c8a84b] text-[8px] font-bold">{shopItem.price} MC</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="w-px bg-[rgba(200,168,75,0.1)]" />
+                <div className="flex-1 flex flex-wrap gap-1.5 p-2">
+                  {Object.entries(itemCounts).map(([item, count]) => (
+                    <button
+                      key={item}
+                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation();
+                        const idx = S.current!.p!.inv.indexOf(item)
+                        if (idx >= 0) {
+                          const price = Math.floor((ITEMS[item]?.desc?.length || 10) * 2)
+                          S.current!.p!.gold += price
+                          S.current!.p!.inv.splice(idx, 1)
+                          log('s', `Vendés ${ITEMS[item]?.icon || item} por ${price} MC`)
+                          notify(`+${price} MC`, '#c8a84b')
+                          forceUpdate(n => n + 1)
+                        }
+                      }}
+                      onClick={(e) => { e.preventDefault();
+                        const idx = S.current!.p!.inv.indexOf(item)
+                        if (idx >= 0) {
+                          const price = Math.floor((ITEMS[item]?.desc?.length || 10) * 2)
+                          S.current!.p!.gold += price
+                          S.current!.p!.inv.splice(idx, 1)
+                          log('s', `Vendés ${ITEMS[item]?.icon || item} por ${price} MC`)
+                          notify(`+${price} MC`, '#c8a84b')
+                          forceUpdate(n => n + 1)
+                        }
+                      }}
+                      className="relative flex flex-col items-center gap-1 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all hover:border-[rgba(200,168,75,0.4)]"
+                    >
+                      <span style={{ fontSize: '18px' }}>{ITEMS[item]?.icon || '?'}</span>
+                      <span className="text-[#8aaa6e] text-[8px] font-bold">Vender</span>
+                      {count > 1 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#c8a84b] text-[#1a1408] text-[9px] font-bold flex items-center justify-center">{count}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="px-2 py-1.5 text-[#5a6a3a] text-[8px] border-t border-[rgba(200,168,75,0.1)] text-right">Tu oro: 💰 {S.current.p.gold} MC</div>
+            </div>
+            )
+          })()}
 
           {invPanelOpen && S.current?.p && (
             <div
