@@ -34,6 +34,7 @@ const ITEMS: Record<string, { icon: string; desc: string }> = {
   espada_rota: { icon: '🗡️', desc: 'Espada rota. Daño reducido.' },
   arco: { icon: '🏹', desc: 'Arco élfico. Ataque a distancia.' },
   hacha: { icon: '🪓', desc: 'Hacha enana. Daño demoledor.' },
+  gold: { icon: '💰', desc: 'Monedas de la Comarca.' },
 }
 
 // ============ VILLAGER DEFINITIONS ============
@@ -84,6 +85,7 @@ interface DroppedItem {
   y: number
   item: string
   bouncePhase: number
+  amount?: number
 }
 
 interface Villager {
@@ -558,7 +560,7 @@ export default function GamePage() {
     const p = S.current.p
     return S.current.droppedItems.find(di => {
       const dx = di.x - p.x, dy = di.y - p.y
-      return Math.sqrt(dx*dx + dy*dy) < T * 2
+      return Math.sqrt(dx*dx + dy*dy) < T * 2.5
     }) || null
   }, [])
 
@@ -726,9 +728,9 @@ export default function GamePage() {
       const v = dlg.target
       if (v.items.length > 0 && S.current.p && S.current.p.inv.length < 5) {
         const item = v.items.shift()!
-        S.current.p.inv.push(item)
-        log('e', `${v.name} te da ${ITEMS[item]?.icon || item}.`)
-        notify(`+${ITEMS[item]?.icon || item}`, '#c8a84b')
+        S.current.droppedItems.push({ x: S.current.p.x + (Math.random()-0.5)*T*2, y: S.current.p.y - T, item, bouncePhase: 0 })
+        log('e', `${v.name} deja ${ITEMS[item]?.icon || item} en el piso.`)
+        notify(`${ITEMS[item]?.icon || item} en el suelo`, '#c8a84b')
       }
       dlg.active = false
     } else if (opt.action === 'stay_home' && dlg.target) {
@@ -969,10 +971,10 @@ export default function GamePage() {
           naz.state = 'dying'
           naz.deathFrame = 0
           const goldDrop = 5 + naz.waveNum * 2
-          p.gold += goldDrop
-          S.current.fx.push({ x: naz.x, y: naz.y - 20, text: `+${goldDrop} MC`, color: '#c8a84b', vy: -1.2, life: 50 })
+          S.current.droppedItems.push({ x: naz.x + (Math.random()-0.5)*T, y: naz.y + (Math.random()-0.5)*T, item: 'gold', bouncePhase: 0, amount: goldDrop })
+          S.current.fx.push({ x: naz.x, y: naz.y - 20, text: `💰 ${goldDrop} MC`, color: '#c8a84b', vy: -1.2, life: 50 })
           log('e', '¡El Nazgûl cae!')
-          log('s', `+${goldDrop} MC obtenidos`)
+          log('s', `💰 ${goldDrop} MC en el piso — ¡recógelos!`)
         }
       }
     }
@@ -1013,6 +1015,26 @@ export default function GamePage() {
       }
     }
   }, [openGandalfDlg, openVillagerDlg])
+
+  const pickupNearbyItem = useCallback(() => {
+    if (!S.current?.p) return
+    const nearby = getNearbyItem()
+    if (!nearby) { tryInteract(); return }
+    const idx = S.current.droppedItems.indexOf(nearby)
+    if (idx < 0) return
+    if (nearby.item === 'gold') {
+      const amt = nearby.amount || 5
+      S.current.p.gold += amt
+      log('s', `Recoges 💰 ${amt} MC. Total: ${S.current.p.gold} MC`)
+      notify(`+💰 ${amt} MC`, '#c8a84b')
+    } else {
+      S.current.p.inv.push(nearby.item)
+      log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`)
+      notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b')
+    }
+    S.current.droppedItems.splice(idx, 1)
+    forceUpdate(n => n + 1)
+  }, [getNearbyItem, tryInteract, log, notify])
 
   const moveToward = useCallback((entity: { x: number; y: number; dir: Dir }, tx: number, ty: number, spd: number) => {
     const dx = tx - entity.x, dy = ty - entity.y
@@ -1121,14 +1143,6 @@ export default function GamePage() {
 
     st.droppedItems = st.droppedItems.filter(di => {
       di.bouncePhase += 0.1
-      const pdx = di.x - p.x, pdy = di.y - p.y
-      const pdist = Math.sqrt(pdx * pdx + pdy * pdy)
-      if (pdist < T * 1.5) {
-        p.inv.push(di.item)
-        log('s', `Recoges ${ITEMS[di.item]?.icon || di.item}`)
-        notify(`+${ITEMS[di.item]?.icon || '?'}`, '#c8a84b')
-        return false
-      }
       return true
     })
 
@@ -2481,6 +2495,9 @@ export default function GamePage() {
               <div className="text-[#8aaa6e] text-xs mt-0.5 font-medium">
                 Aldeanos: {savedCount}/8
               </div>
+              <div className="text-[#c8a84b] text-xs font-medium">
+                💰 {S.current.p.gold} MC
+              </div>
               {S.current.p && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-[#c8a84b] text-[10px] font-bold">Nv.{S.current.p.level}</span>
@@ -2621,15 +2638,16 @@ export default function GamePage() {
                 <div className="text-[#5a6a3a] text-xs text-center py-3">Vacío</div>
               ) : (
                 <div className="flex flex-wrap gap-2 p-2">
-                  {S.current.p.inv.map((item, i) => (
+                  {Object.entries(S.current.p.inv.reduce((acc: Record<string,number>, item) => { acc[item] = (acc[item]||0)+1; return acc }, {})).map(([item, count]) => (
                     <button
-                      key={i}
-                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); useItem(i); setInvPanelOpen(false) }}
-                      onClick={() => { useItem(i); setInvPanelOpen(false) }}
-                      className="flex flex-col items-center gap-0.5 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all"
+                      key={item}
+                      onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const idx = S.current!.p!.inv.indexOf(item); useItem(idx); setInvPanelOpen(false) }}
+                      onClick={() => { const idx = S.current!.p!.inv.indexOf(item); useItem(idx); setInvPanelOpen(false) }}
+                      className="relative flex flex-col items-center gap-0.5 p-2 rounded-lg bg-[rgba(40,30,20,0.8)] border border-[rgba(200,168,75,0.2)] active:scale-95 transition-all"
                     >
                       <span style={{ fontSize: '20px' }}>{ITEMS[item]?.icon || '?'}</span>
                       <span className="text-[#c8a84b] text-[9px] capitalize">{item}</span>
+                      {count > 1 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#c8a84b] text-[#1a1408] text-[9px] font-bold flex items-center justify-center">{count}</span>}
                     </button>
                   ))}
                 </div>
@@ -2709,8 +2727,8 @@ export default function GamePage() {
               >🍞</button>
 
               <button
-                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const nearby = getNearbyItem(); if (nearby) { const idx = S.current!.droppedItems.indexOf(nearby); if (idx >= 0) { S.current!.p!.inv.push(nearby.item); log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`); notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b'); S.current!.droppedItems.splice(idx, 1); forceUpdate(n => n + 1); } } else { tryInteract(); } }}
-                onClick={(e) => { e.preventDefault(); const nearby = getNearbyItem(); if (nearby) { const idx = S.current!.droppedItems.indexOf(nearby); if (idx >= 0) { S.current!.p!.inv.push(nearby.item); log('s', `Recoges ${ITEMS[nearby.item]?.icon || nearby.item}`); notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b'); S.current!.droppedItems.splice(idx, 1); forceUpdate(n => n + 1); } } else { tryInteract(); } }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); pickupNearbyItem() }}
+                onClick={(e) => { e.preventDefault(); pickupNearbyItem() }}
                 className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center text-lg active:scale-95 transition-all ${getNearbyItem() ? 'bg-[#1a2a10] border-[#3a5a20]' : 'bg-[#102030] border-[#2a3a4a] active:bg-[#1a2a3a]'}`}
                 title={getNearbyItem() ? 'Recoger item' : 'Hablar'}
               >{getNearbyItem() ? '📦' : '💬'}</button>
