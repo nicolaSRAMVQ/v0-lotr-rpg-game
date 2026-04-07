@@ -25,16 +25,34 @@ const WEAPONS: Record<string, { main: { icon: string; label: string; dmgMult: nu
   gimli:   { main: { icon: '🪓', label: 'Hacha',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Cuchillo',  dmgMult: 0.6, rangeMult: 0.7 } },
 }
 
-const ITEMS: Record<string, { icon: string; desc: string }> = {
-  lembas: { icon: '🍞', desc: 'Pan élfico. Restaura 3 HP.' },
-  anillo: { icon: '💍', desc: 'El Anillo Único. Invisibilidad temporal.' },
-  espada: { icon: '⚔️', desc: 'Andúril. Daño aumentado.' },
-  baston: { icon: '🪄', desc: 'Bastón de mago. Área de ataque.' },
-  miruvor: { icon: '🧴', desc: 'Cordial élfico. Restaura HP completo.' },
-  espada_rota: { icon: '🗡️', desc: 'Espada rota. Daño reducido.' },
-  arco: { icon: '🏹', desc: 'Arco élfico. Ataque a distancia.' },
-  hacha: { icon: '🪓', desc: 'Hacha enana. Daño demoledor.' },
-  gold: { icon: '💰', desc: 'Monedas de la Comarca.' },
+const ITEMS: Record<string, { icon: string; desc: string; type?: string; dmgBonus?: number; defBonus?: number; spdBonus?: number; healHp?: number; effect?: string; duration?: number; spellFor?: string[] }> = {
+  // Consumibles
+  lembas:       { icon: '🍞', desc: 'Pan élfico. +3 HP.', type: 'consumable', healHp: 3 },
+  miruvor:      { icon: '🧴', desc: 'Cordial élfico. HP completo.', type: 'consumable', healHp: 999 },
+  manzana:      { icon: '🍎', desc: 'Manzana de la Comarca. +2 HP.', type: 'consumable', healHp: 2 },
+  jarron_miel:  { icon: '🍯', desc: 'Miel enana. +1 HP máx por 60s.', type: 'consumable', effect: 'maxhp_up', duration: 3600 },
+  antidoto:     { icon: '💊', desc: 'Antídoto. Cura veneno y confusión.', type: 'consumable', effect: 'cure' },
+  elixir:       { icon: '🧪', desc: 'Elixir de vida. +5 HP máx permanente.', type: 'consumable', effect: 'maxhp_perm' },
+  // Armas
+  espada:       { icon: '⚔️', desc: 'Andúril. +4 DMG.', type: 'weapon', dmgBonus: 4 },
+  espada_rota:  { icon: '🗡️', desc: 'Espada rota. -2 DMG.', type: 'weapon', dmgBonus: -2 },
+  baston:       { icon: '🪄', desc: 'Bastón de mago. +5 DMG, rango +1.', type: 'weapon', dmgBonus: 5 },
+  arco:         { icon: '🏹', desc: 'Arco élfico. +3 DMG, rango largo.', type: 'weapon', dmgBonus: 3 },
+  hacha:        { icon: '🪓', desc: 'Hacha enana. +6 DMG.', type: 'weapon', dmgBonus: 6 },
+  // Armaduras
+  armadura:     { icon: '🛡️', desc: 'Armadura. +3 HP máx, +20% invT.', type: 'armor', defBonus: 3 },
+  capa_viaje:   { icon: '🧥', desc: 'Capa de viaje. +15% velocidad.', type: 'armor', spdBonus: 0.15 },
+  botas:        { icon: '👢', desc: 'Botas élficas. +20% velocidad.', type: 'armor', spdBonus: 0.2 },
+  capucha:      { icon: '🎩', desc: 'Capucha. Reduce detección nazgul.', type: 'armor', effect: 'stealth' },
+  // Especiales
+  anillo:       { icon: '💍', desc: 'Anillo Único. Invisibilidad 10s.', type: 'consumable', effect: 'invisible', duration: 600 },
+  gold:         { icon: '💰', desc: 'Monedas de la Comarca.', type: 'consumable' },
+  // Hechizos — Gandalf
+  escudo_istari:  { icon: '🔵', desc: 'Escudo Istari. Protege 10s.', type: 'spell', effect: 'group_shield', duration: 600, spellFor: ['gandalf'] },
+  fuego_istari:   { icon: '🔥', desc: 'Fuego Istari. Área de fuego.', type: 'spell', effect: 'area_fire', spellFor: ['gandalf'] },
+  luz_earendil:   { icon: '✨', desc: 'Luz Eärendil. Confunde Nazgûl.', type: 'spell', effect: 'mass_confuse', spellFor: ['gandalf'] },
+  // Hechizos — Legolas
+  lluvia_flechas: { icon: '🏹', desc: 'Lluvia de Flechas. Multi-target.', type: 'spell', effect: 'arrow_rain', spellFor: ['legolas'] },
 }
 
 // ============ VILLAGER DEFINITIONS ============
@@ -116,6 +134,7 @@ interface Nazgul {
   spd: number
   dmg: number
   state: 'hunt' | 'chase_player' | 'flee_gandalf' | 'confused' | 'dying'
+  confusedTimer: number
   dir: Dir
   frame: number
   atkT: number
@@ -123,6 +142,24 @@ interface Nazgul {
   invT: number
   deathFrame: number
   waveNum: number
+}
+
+interface HeroCompanion {
+  char: string
+  x: number
+  y: number
+  hp: number
+  maxhp: number
+  dmg: number
+  range: number
+  state: 'idle' | 'following'
+  dir: Dir
+  frame: number
+  patrol: { x: number; y: number }[]
+  patrolIdx: number
+  patrolTimer: number
+  attackCooldown: number
+  weaponSlot: 'main' | 'secondary'
 }
 
 interface GandalfAlly {
@@ -169,6 +206,8 @@ interface Player {
   staffRayTarget: { x: number; y: number } | null
   staffSwingAnim: number
   weaponSlot: 'main' | 'secondary'
+  spellCooldowns: Record<string, number>
+  activeEffects: { effect: string; duration: number }[]
 }
 
 interface Merchant {
@@ -215,6 +254,7 @@ interface GameState {
   nazgul: Nazgul | null
   nazgulList: Nazgul[]
   gandalfAlly: GandalfAlly | null
+  heroCompanions: HeroCompanion[]
   invNaz: boolean
   invTimer: number
   invWarned: boolean
@@ -251,6 +291,7 @@ const SHOPS: Record<string, { name: string; icon: string; color: string; items: 
     items: [
       { id: 'espada', name: 'Espada', icon: '⚔️', price: 30, type: 'weapon' },
       { id: 'hacha', name: 'Hacha', icon: '🪓', price: 35, type: 'weapon' },
+      { id: 'arco', name: 'Arco', icon: '🏹', price: 28, type: 'weapon' },
       { id: 'armadura', name: 'Armadura', icon: '🛡️', price: 50, type: 'armor' },
     ]
   },
@@ -276,6 +317,10 @@ const SHOPS: Record<string, { name: string; icon: string; color: string; items: 
       { id: 'miruvor', name: 'Miruvor', icon: '🧴', price: 20, type: 'potion' },
       { id: 'antidoto', name: 'Antídoto', icon: '💊', price: 15, type: 'potion' },
       { id: 'elixir', name: 'Elixir hp', icon: '🧪', price: 40, type: 'potion' },
+      { id: 'escudo_istari', name: 'Escudo Istari', icon: '🔵', price: 60, type: 'potion' },
+      { id: 'fuego_istari', name: 'Fuego Istari', icon: '🔥', price: 80, type: 'potion' },
+      { id: 'luz_earendil', name: 'Luz Eärendil', icon: '✨', price: 50, type: 'potion' },
+      { id: 'lluvia_flechas', name: 'Lluvia Flechas', icon: '🏹', price: 55, type: 'potion' },
     ]
   },
 }
@@ -430,7 +475,37 @@ export default function GamePage() {
       invT: 0,
       deathFrame: 0,
       waveNum,
+      confusedTimer: 0,
     }
+  }, [])
+
+  const spawnHeroCompanions = useCallback((playerChar: string): HeroCompanion[] => {
+    const HERO_POSITIONS: Record<string, { x: number; y: number; patrol: {x:number;y:number}[] }> = {
+      frodo:   { x: 44*T, y: 36*T, patrol: [{x:43*T,y:36*T},{x:45*T,y:36*T},{x:44*T,y:37*T},{x:44*T,y:35*T}] },
+      aragorn: { x: 46*T, y: 40*T, patrol: [{x:45*T,y:40*T},{x:47*T,y:40*T},{x:46*T,y:41*T},{x:46*T,y:39*T}] },
+      gandalf: { x: 44*T, y: 42*T, patrol: [{x:43*T,y:42*T},{x:45*T,y:42*T},{x:44*T,y:43*T},{x:44*T,y:41*T}] },
+      legolas: { x: 48*T, y: 36*T, patrol: [{x:47*T,y:36*T},{x:49*T,y:36*T},{x:48*T,y:37*T},{x:48*T,y:35*T}] },
+      gimli:   { x: 48*T, y: 42*T, patrol: [{x:47*T,y:42*T},{x:49*T,y:42*T},{x:48*T,y:43*T},{x:48*T,y:41*T}] },
+    }
+    return Object.keys(CHARS)
+      .filter(c => c !== playerChar && c !== 'gandalf')
+      .map(char => {
+        const pos = HERO_POSITIONS[char] || { x: 45*T, y: 38*T, patrol: [{x:44*T,y:38*T},{x:46*T,y:38*T}] }
+        const charDef = CHARS[char]
+        return {
+          char,
+          x: pos.x, y: pos.y,
+          hp: charDef.maxhp, maxhp: charDef.maxhp,
+          dmg: charDef.dmg, range: charDef.range,
+          state: 'idle' as const,
+          dir: 'down' as Dir,
+          frame: 0,
+          patrol: pos.patrol,
+          patrolIdx: 0, patrolTimer: 80,
+          attackCooldown: 0,
+          weaponSlot: 'main' as const,
+        }
+      })
   }, [])
 
   const spawnGandalfAlly = useCallback((): GandalfAlly => {
@@ -491,12 +566,15 @@ export default function GamePage() {
         staffRayTarget: null,
         staffSwingAnim: 0,
         weaponSlot: 'main',
+        spellCooldowns: {},
+        activeEffects: [],
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
       nazgul: null,
       nazgulList: [],
       gandalfAlly: spawnGandalfAlly(),
+      heroCompanions: spawnHeroCompanions(charKey),
       invNaz: false,
       invTimer: mode === 'exploration' ? 999999 : 360,
       invWarned: false,
@@ -537,7 +615,7 @@ export default function GamePage() {
     }
     log('i', 'Bienvenido a Hobbiton. Protege a los aldeanos.')
     setScreen('game')
-  }, [buildMap, spawnVillagers, spawnGandalfAlly, log])
+  }, [buildMap, spawnVillagers, spawnGandalfAlly, spawnHeroCompanions, log])
 
   const revive = useCallback(() => {
     if (!S.current || !S.current.p) return
@@ -736,6 +814,24 @@ export default function GamePage() {
     const dlg = S.current.dlg
     if (opt.action === 'close') {
       dlg.active = false
+    } else if (opt.action && opt.action.startsWith('hero_follow_')) {
+      const charKey = opt.action.replace('hero_follow_', '')
+      const hero = S.current.heroCompanions.find(h => h.char === charKey)
+      if (hero) {
+        hero.state = 'following'
+        log('e', `${CHARS[charKey].name}: ¡Con vos hasta el final!`)
+        notify(`✦ ${CHARS[charKey].name} te sigue ✦`, '#c8a84b')
+      }
+      dlg.active = false
+    } else if (opt.action && opt.action.startsWith('hero_stay_')) {
+      const charKey = opt.action.replace('hero_stay_', '')
+      const hero = S.current.heroCompanions.find(h => h.char === charKey)
+      if (hero) {
+        hero.state = 'idle'
+        log('e', `${CHARS[charKey].name}: Esperaré aquí.`)
+        notify(`${CHARS[charKey].name} patrulla`, '#8a8860')
+      }
+      dlg.active = false
     } else if (opt.action === 'gandalf_follow') {
       if (S.current.gandalfAlly) {
         S.current.gandalfAlly.state = 'following'
@@ -790,30 +886,153 @@ export default function GamePage() {
     const p = S.current.p
     const item = p.inv[idx]
     if (!item) return
+    const def = ITEMS[item]
+    if (!def) { notify('Item desconocido', '#c83030'); return }
 
-    if (item === 'lembas') {
-      p.hp = Math.min(p.maxhp, p.hp + 3)
+    // ——— CONSUMIBLES ———
+    if (def.healHp) {
+      const healed = def.healHp === 999 ? p.maxhp - p.hp : Math.min(def.healHp, p.maxhp - p.hp)
+      p.hp = Math.min(p.maxhp, p.hp + def.healHp)
       p.inv.splice(idx, 1)
-      log('s', 'Comes pan lembas. +3 HP.')
-      notify('+3 HP', '#5a6a3a')
-    } else if (item === 'anillo') {
-      p.ringActive = 300
-      p.ringShimmer = 300
+      log('s', `${def.icon} ${def.desc.split('.')[0]}. +${healed} HP.`)
+      notify(`+${healed} HP`, '#5a8a3a')
+      return
+    }
+
+    if (def.effect === 'invisible' || item === 'anillo') {
+      p.ringActive = def.duration || 300
+      p.ringShimmer = def.duration || 300
       log('e', '¡El Anillo te hace invisible!')
       notify('💍 INVISIBLE', '#c8a84b')
-      if (S.current.nazgul && S.current.nazgul.hp > 0) {
-        S.current.nazgul.state = 'confused'
-      }
-      for (const naz of S.current.nazgulList) {
-        if (naz.hp > 0) naz.state = 'confused'
-      }
-    } else if (item === 'miruvor') {
-      p.hp = p.maxhp
+      if (S.current.nazgul?.hp > 0) S.current.nazgul.state = 'confused'
+      for (const naz of S.current.nazgulList) if (naz.hp > 0) naz.state = 'confused'
+      if (item !== 'anillo') p.inv.splice(idx, 1)
+      return
+    }
+
+    if (def.effect === 'cure') {
+      p.invT = Math.max(p.invT, 60)
       p.inv.splice(idx, 1)
-      log('s', 'Bebes miruvor. HP restaurado.')
-      notify('HP FULL', '#5a6a3a')
-    } else if (item === 'espada' || item === 'baston') {
-      notify('Pasiva activa', '#c8a84b')
+      log('s', 'Antídoto aplicado. Efectos negativos curados.')
+      notify('✓ CURADO', '#5a8a3a')
+      return
+    }
+
+    if (def.effect === 'maxhp_perm') {
+      p.maxhp += 5
+      p.hp = Math.min(p.hp + 5, p.maxhp)
+      p.inv.splice(idx, 1)
+      log('s', 'Elixir bebido. +5 HP máx permanente.')
+      notify('+5 HP MÁX', '#c8a84b')
+      return
+    }
+
+    if (def.effect === 'maxhp_up') {
+      p.maxhp += 1
+      p.inv.splice(idx, 1)
+      p.activeEffects.push({ effect: 'maxhp_up', duration: def.duration || 3600 })
+      log('s', 'Miel consumida. +1 HP máx temporal.')
+      notify('+1 HP MÁX', '#c8a84b')
+      return
+    }
+
+    if (def.effect === 'stealth') {
+      p.invT = Math.max(p.invT, 180)
+      p.inv.splice(idx, 1)
+      log('s', 'Capucha puesta. Reduce detección 3s.')
+      notify('OCULTO', '#5a8a3a')
+      return
+    }
+
+    // ——— ARMAS (se equipan al inventario) ———
+    if (def.type === 'weapon') {
+      notify(`${def.icon} EQUIPADA`, '#c8a84b')
+      log('i', `Arma equipada: ${def.icon} ${def.desc.split('.')[0]}`)
+      return  // no se consume, se equipan en combat
+    }
+
+    // ——— HECHIZOS ———
+    if (def.type === 'spell') {
+      if (p.spellCooldowns[item] && p.spellCooldowns[item] > 0) {
+        log('d', `Hechizo en cooldown. ${p.spellCooldowns[item]}s`)
+        return
+      }
+
+      if (def.effect === 'group_shield' && p.char === 'gandalf') {
+        p.activeEffects.push({ effect: 'group_shield', duration: def.duration || 600 })
+        p.invT = Math.max(p.invT, (def.duration || 600) / 60)
+        p.spellCooldowns[item] = 300
+        log('e', 'GANDALF: ¡Escudo Istari! Todos protegidos.')
+        notify('🔵 ESCUDO', '#8aaa6e')
+        p.inv.splice(idx, 1)
+        return
+      }
+
+      if (def.effect === 'area_fire' && p.char === 'gandalf') {
+        const allNaz = [
+          ...(S.current.nazgul?.hp > 0 ? [S.current.nazgul] : []),
+          ...S.current.nazgulList.filter(n => n.hp > 0)
+        ]
+        for (const naz of allNaz) {
+          const dx = naz.x - p.x, dy = naz.y - p.y
+          const dist = Math.sqrt(dx*dx + dy*dy)
+          if (dist < 4*T) {
+            naz.hp -= 10
+            S.current.fx.push({ x: naz.x, y: naz.y-20, text: '🔥 -10', color: '#e24b4a', vy: -1, life: 40 })
+            if (naz.hp <= 0) { naz.state = 'dying'; naz.deathFrame = 0 }
+          }
+        }
+        p.spellCooldowns[item] = 240
+        log('e', 'GANDALF: ¡Fuego Istari!')
+        notify('🔥 FUEGO', '#e24b4a')
+        p.inv.splice(idx, 1)
+        return
+      }
+
+      if (def.effect === 'mass_confuse' && p.char === 'gandalf') {
+        const allNaz = [
+          ...(S.current.nazgul?.hp > 0 ? [S.current.nazgul] : []),
+          ...S.current.nazgulList.filter(n => n.hp > 0)
+        ]
+        for (const naz of allNaz) {
+          naz.state = 'confused'
+          naz.confusedTimer = 300
+          S.current.fx.push({ x: naz.x, y: naz.y-20, text: '✨ CONFUSO', color: '#e8e0a0', vy: -1, life: 50 })
+        }
+        p.spellCooldowns[item] = 180
+        log('e', 'GANDALF: ¡Luz de Eärendil! ¡Todos confundidos!')
+        notify('✨ LUZ', '#e8e0a0')
+        p.inv.splice(idx, 1)
+        return
+      }
+
+      if (def.effect === 'arrow_rain' && p.char === 'legolas') {
+        const allNaz = [
+          ...(S.current.nazgul?.hp > 0 ? [S.current.nazgul] : []),
+          ...S.current.nazgulList.filter(n => n.hp > 0)
+        ]
+        for (const naz of allNaz) {
+          const dx = naz.x - p.x, dy = naz.y - p.y
+          const dist = Math.sqrt(dx*dx + dy*dy)
+          if (dist < 6*T) {
+            naz.hp -= 7
+            for (let i = 0; i < 5; i++) {
+              S.current.parts.push({
+                x: naz.x, y: naz.y,
+                vx: (Math.random()-0.5)*3, vy: -Math.random()*3,
+                color: '#d4a820', life: 20, maxLife: 20
+              })
+            }
+            S.current.fx.push({ x: naz.x, y: naz.y-20, text: '🏹 -7', color: '#d4a820', vy: -1, life: 35 })
+            if (naz.hp <= 0) { naz.state = 'dying'; naz.deathFrame = 0 }
+          }
+        }
+        p.spellCooldowns[item] = 200
+        log('e', 'LEGOLAS: ¡Lluvia de Flechas!')
+        notify('🏹 LLUVIA', '#d4a820')
+        p.inv.splice(idx, 1)
+        return
+      }
     }
   }, [log, notify])
 
@@ -1118,6 +1337,24 @@ export default function GamePage() {
       }
     }
 
+    // Detectar hero companion cercano
+    for (const hero of S.current.heroCompanions) {
+      const dx = hero.x - p.x, dy = hero.y - p.y
+      if (Math.sqrt(dx*dx+dy*dy) < 2.5 * T) {
+        const heroName = CHARS[hero.char].name
+        const isFollowing = hero.state === 'following'
+        log('e', `${heroName}: ${isFollowing ? 'Contigo hasta el fin.' : '¿Necesitás ayuda?'}`)
+        S.current.dlg = {
+          active: true, speaker: heroName, lines: [], lineIdx: 0,
+          opts: isFollowing
+            ? [{ l: `Esperá aquí, ${heroName}.`, action: `hero_stay_${hero.char}` }, { l: 'Sigamos juntos.', action: 'close' }]
+            : [{ l: `¡Únete a nosotros, ${heroName}!`, action: `hero_follow_${hero.char}` }, { l: 'Quédate aquí.', action: 'close' }],
+        }
+        forceUpdate(n => n + 1)
+        return
+      }
+    }
+
     const g = S.current.gandalfAlly
     if (g) {
       const dx = g.x - p.x, dy = g.y - p.y
@@ -1195,6 +1432,23 @@ export default function GamePage() {
     if (p.daggerAnim > 0) p.daggerAnim--
     if (p.staffRayAnim > 0) p.staffRayAnim--
     if (p.staffSwingAnim > 0) p.staffSwingAnim--
+    // Inicializar si no existen (compatibilidad con partidas antiguas)
+    if (!p.spellCooldowns) p.spellCooldowns = {}
+    if (!p.activeEffects) p.activeEffects = []
+    // Decrementar cooldowns de hechizos
+    for (const k of Object.keys(p.spellCooldowns)) {
+      if (p.spellCooldowns[k] > 0) p.spellCooldowns[k]--
+    }
+    // Decrementar efectos activos
+    p.activeEffects = p.activeEffects.filter(e => {
+      e.duration--
+      if (e.duration <= 0) {
+        // Efecto expiró
+        if (e.effect === 'group_shield' && p.invT > 0) p.invT = 0
+        if (e.effect === 'maxhp_up') { p.maxhp = Math.max(p.hp, p.maxhp - 1); p.hp = Math.min(p.hp, p.maxhp) }
+      }
+      return e.duration > 0
+    })
 
     if (st.frameCount === 180 && st.gameMode === 'horde') {
       log('i', 'Habla con Gandalf antes de que llegue el Nazgûl.')
@@ -1324,6 +1578,48 @@ export default function GamePage() {
         const target = v.patrol[v.patrolIdx]
         const arrived = moveToward(v, target.x, target.y, 0.5)
         if (!arrived) v.frame++
+      }
+    }
+
+    // — UPDATE HERO COMPANIONS —
+    for (const hero of st.heroCompanions) {
+      if (hero.attackCooldown > 0) hero.attackCooldown--
+      const hpdx = p.x - hero.x, hpdy = p.y - hero.y
+      const hpDist = Math.sqrt(hpdx*hpdx + hpdy*hpdy)
+
+      if (hero.state === 'following') {
+        const followDist = 2.8 * T
+        if (hpDist > 14 * T) {
+          const angle = Math.atan2(hpdy, hpdx)
+          hero.x = p.x - Math.cos(angle) * followDist
+          hero.y = p.y - Math.sin(angle) * followDist
+        } else if (hpDist > followDist + T) {
+          const angle = Math.atan2(hpdy, hpdx)
+          moveToward(hero, p.x - Math.cos(angle)*followDist, p.y - Math.sin(angle)*followDist, CHARS[hero.char].spd * 0.9)
+          hero.frame++
+        }
+        if (hero.attackCooldown === 0) {
+          const allNaz = [...(st.nazgul && st.nazgul.hp>0 && st.nazgul.state!=='dying'?[st.nazgul]:[]), ...st.nazgulList.filter(n=>n!==st.nazgul&&n.hp>0&&n.state!=='dying')]
+          for (const target of allNaz) {
+            const dx = target.x - hero.x, dy = target.y - hero.y
+            if (Math.sqrt(dx*dx+dy*dy) < hero.range * T * 1.5) {
+              hero.attackCooldown = 120
+              target.hp -= hero.dmg
+              st.fx.push({ x: target.x, y: target.y-20, text: `-${hero.dmg}`, color: '#c8a84b', vy: -1, life: 35 })
+              if (target.hp <= 0) { target.state='dying'; target.deathFrame=0 }
+              else target.state='flee_gandalf'
+              break
+            }
+          }
+        }
+      } else {
+        hero.patrolTimer--
+        if (hero.patrolTimer <= 0) {
+          hero.patrolIdx = (hero.patrolIdx + 1) % hero.patrol.length
+          hero.patrolTimer = 80
+        }
+        const arrived = moveToward(hero, hero.patrol[hero.patrolIdx].x, hero.patrol[hero.patrolIdx].y, 0.4)
+        if (!arrived) hero.frame++
       }
     }
 
@@ -1532,8 +1828,10 @@ export default function GamePage() {
       naz.frame++
 
       if (naz.state === 'confused') {
-        if (p.ringActive === 0) {
+        naz.confusedTimer = (naz.confusedTimer || 0) - 1
+        if (naz.confusedTimer <= 0 && p.ringActive === 0) {
           naz.state = 'hunt'
+          naz.confusedTimer = 0
         } else {
           const randAngle = Math.random() * Math.PI * 2
           naz.x += Math.cos(randAngle) * naz.spd * 0.5
@@ -2218,6 +2516,31 @@ export default function GamePage() {
       ctx.fillText(v.name, vx, vy + 20)
     }
 
+    // Render hero companions
+    for (const hero of st.heroCompanions) {
+      const hx = hero.x - sx, hy = hero.y - sy
+      drawSprite(ctx, hero.char, hero.dir, hero.frame, hx, hy, 2, undefined, hero.weaponSlot)
+      ctx.font = 'bold 7px monospace'
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'
+      ctx.fillRect(hx - 20, hy + 12, 40, 10)
+      ctx.fillStyle = '#c8a84b'
+      ctx.textAlign = 'center'
+      ctx.fillText(CHARS[hero.char].name, hx, hy + 20)
+      if (hero.state === 'following') {
+        ctx.strokeStyle = 'rgba(200,168,75,0.4)'
+        ctx.lineWidth = 2
+        ctx.beginPath(); ctx.arc(hx, hy, 22, 0, Math.PI*2); ctx.stroke()
+      }
+      if (p) {
+        const dx = hero.x - p.x, dy = hero.y - p.y
+        if (Math.sqrt(dx*dx+dy*dy) < 2.5*T) {
+          ctx.font = 'bold 10px monospace'
+          ctx.fillStyle = '#c8a84b'
+          ctx.fillText('[E]', hx, hy - 28)
+        }
+      }
+    }
+
     const g = st.gandalfAlly
     if (g) {
       const gx = g.x - sx, gy = g.y - sy
@@ -2680,9 +3003,6 @@ export default function GamePage() {
               <div className="text-[#c8a84b] text-xs font-medium">
                 💰 {S.current.p.gold} MC
               </div>
-              <div className="text-[#c8a84b] text-xs font-medium">
-                💰 {S.current.p.gold} MC
-              </div>
               {S.current.p && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-[#c8a84b] text-[10px] font-bold">Nv.{S.current.p.level}</span>
@@ -2817,7 +3137,7 @@ export default function GamePage() {
             return (
             <div
               className="absolute bottom-full left-0 right-0 mx-2 mb-1 rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
-              style={{ background: 'rgba(10,12,8,0.97)' }}
+              style={{ background: 'rgba(10,12,8,0.97)', maxHeight: '220px', overflowY: 'auto' }}
             >
               <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(200,168,75,0.15)]">
                 <span className="text-[#c8a84b] text-xs font-bold">{shop.icon} {shop.name}</span>
