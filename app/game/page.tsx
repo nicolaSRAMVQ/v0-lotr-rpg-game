@@ -25,16 +25,34 @@ const WEAPONS: Record<string, { main: { icon: string; label: string; dmgMult: nu
   gimli:   { main: { icon: '🪓', label: 'Hacha',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Cuchillo',  dmgMult: 0.6, rangeMult: 0.7 } },
 }
 
-const ITEMS: Record<string, { icon: string; desc: string }> = {
-  lembas: { icon: '🍞', desc: 'Pan élfico. Restaura 3 HP.' },
-  anillo: { icon: '💍', desc: 'El Anillo Único. Invisibilidad temporal.' },
-  espada: { icon: '⚔️', desc: 'Andúril. Daño aumentado.' },
-  baston: { icon: '🪄', desc: 'Bastón de mago. Área de ataque.' },
-  miruvor: { icon: '🧴', desc: 'Cordial élfico. Restaura HP completo.' },
-  espada_rota: { icon: '🗡️', desc: 'Espada rota. Daño reducido.' },
-  arco: { icon: '🏹', desc: 'Arco élfico. Ataque a distancia.' },
-  hacha: { icon: '🪓', desc: 'Hacha enana. Daño demoledor.' },
-  gold: { icon: '💰', desc: 'Monedas de la Comarca.' },
+const ITEMS: Record<string, { icon: string; desc: string; type?: string; dmgBonus?: number; defBonus?: number; spdBonus?: number; healHp?: number; effect?: string; duration?: number; spellFor?: string[] }> = {
+  // Consumibles
+  lembas:       { icon: '🍞', desc: 'Pan élfico. +3 HP.', type: 'consumable', healHp: 3 },
+  miruvor:      { icon: '🧴', desc: 'Cordial élfico. HP completo.', type: 'consumable', healHp: 999 },
+  manzana:      { icon: '🍎', desc: 'Manzana de la Comarca. +2 HP.', type: 'consumable', healHp: 2 },
+  jarron_miel:  { icon: '🍯', desc: 'Miel enana. +1 HP máx por 60s.', type: 'consumable', effect: 'maxhp_up', duration: 3600 },
+  antidoto:     { icon: '💊', desc: 'Antídoto. Cura veneno y confusión.', type: 'consumable', effect: 'cure' },
+  elixir:       { icon: '🧪', desc: 'Elixir de vida. +5 HP máx permanente.', type: 'consumable', effect: 'maxhp_perm' },
+  // Armas
+  espada:       { icon: '⚔️', desc: 'Andúril. +4 DMG.', type: 'weapon', dmgBonus: 4 },
+  espada_rota:  { icon: '🗡️', desc: 'Espada rota. -2 DMG.', type: 'weapon', dmgBonus: -2 },
+  baston:       { icon: '🪄', desc: 'Bastón de mago. +5 DMG, rango +1.', type: 'weapon', dmgBonus: 5 },
+  arco:         { icon: '🏹', desc: 'Arco élfico. +3 DMG, rango largo.', type: 'weapon', dmgBonus: 3 },
+  hacha:        { icon: '🪓', desc: 'Hacha enana. +6 DMG.', type: 'weapon', dmgBonus: 6 },
+  // Armaduras
+  armadura:     { icon: '🛡️', desc: 'Armadura. +3 HP máx, +20% invT.', type: 'armor', defBonus: 3 },
+  capa_viaje:   { icon: '🧥', desc: 'Capa de viaje. +15% velocidad.', type: 'armor', spdBonus: 0.15 },
+  botas:        { icon: '👢', desc: 'Botas élficas. +20% velocidad.', type: 'armor', spdBonus: 0.2 },
+  capucha:      { icon: '🎩', desc: 'Capucha. Reduce detección nazgul.', type: 'armor', effect: 'stealth' },
+  // Especiales
+  anillo:       { icon: '💍', desc: 'Anillo Único. Invisibilidad 10s.', type: 'consumable', effect: 'invisible', duration: 600 },
+  gold:         { icon: '💰', desc: 'Monedas de la Comarca.', type: 'consumable' },
+  // Hechizos — Gandalf
+  escudo_istari:  { icon: '🔵', desc: 'Escudo Istari. Protege 10s.', type: 'spell', effect: 'group_shield', duration: 600, spellFor: ['gandalf'] },
+  fuego_istari:   { icon: '🔥', desc: 'Fuego Istari. Área de fuego.', type: 'spell', effect: 'area_fire', spellFor: ['gandalf'] },
+  luz_earendil:   { icon: '✨', desc: 'Luz Eärendil. Confunde Nazgûl.', type: 'spell', effect: 'mass_confuse', spellFor: ['gandalf'] },
+  // Hechizos — Legolas
+  lluvia_flechas: { icon: '🏹', desc: 'Lluvia de Flechas. Multi-target.', type: 'spell', effect: 'arrow_rain', spellFor: ['legolas'] },
 }
 
 // ============ VILLAGER DEFINITIONS ============
@@ -169,6 +187,8 @@ interface Player {
   staffRayTarget: { x: number; y: number } | null
   staffSwingAnim: number
   weaponSlot: 'main' | 'secondary'
+  spellCooldowns: Record<string, number>
+  activeEffects: { effect: string; duration: number }[]
 }
 
 interface Merchant {
@@ -251,6 +271,7 @@ const SHOPS: Record<string, { name: string; icon: string; color: string; items: 
     items: [
       { id: 'espada', name: 'Espada', icon: '⚔️', price: 30, type: 'weapon' },
       { id: 'hacha', name: 'Hacha', icon: '🪓', price: 35, type: 'weapon' },
+      { id: 'arco', name: 'Arco', icon: '🏹', price: 28, type: 'weapon' },
       { id: 'armadura', name: 'Armadura', icon: '🛡️', price: 50, type: 'armor' },
     ]
   },
@@ -276,6 +297,10 @@ const SHOPS: Record<string, { name: string; icon: string; color: string; items: 
       { id: 'miruvor', name: 'Miruvor', icon: '🧴', price: 20, type: 'potion' },
       { id: 'antidoto', name: 'Antídoto', icon: '💊', price: 15, type: 'potion' },
       { id: 'elixir', name: 'Elixir hp', icon: '🧪', price: 40, type: 'potion' },
+      { id: 'escudo_istari', name: 'Escudo Istari', icon: '🔵', price: 60, type: 'potion' },
+      { id: 'fuego_istari', name: 'Fuego Istari', icon: '🔥', price: 80, type: 'potion' },
+      { id: 'luz_earendil', name: 'Luz Eärendil', icon: '✨', price: 50, type: 'potion' },
+      { id: 'lluvia_flechas', name: 'Lluvia Flechas', icon: '🏹', price: 55, type: 'potion' },
     ]
   },
 }
@@ -491,6 +516,8 @@ export default function GamePage() {
         staffRayTarget: null,
         staffSwingAnim: 0,
         weaponSlot: 'main',
+        spellCooldowns: {},
+        activeEffects: [],
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -790,30 +817,152 @@ export default function GamePage() {
     const p = S.current.p
     const item = p.inv[idx]
     if (!item) return
+    const def = ITEMS[item]
+    if (!def) { notify('Item desconocido', '#c83030'); return }
 
-    if (item === 'lembas') {
-      p.hp = Math.min(p.maxhp, p.hp + 3)
+    // ——— CONSUMIBLES ———
+    if (def.healHp) {
+      const healed = def.healHp === 999 ? p.maxhp - p.hp : Math.min(def.healHp, p.maxhp - p.hp)
+      p.hp = Math.min(p.maxhp, p.hp + def.healHp)
       p.inv.splice(idx, 1)
-      log('s', 'Comes pan lembas. +3 HP.')
-      notify('+3 HP', '#5a6a3a')
-    } else if (item === 'anillo') {
-      p.ringActive = 300
-      p.ringShimmer = 300
+      log('s', `${def.icon} ${def.desc.split('.')[0]}. +${healed} HP.`)
+      notify(`+${healed} HP`, '#5a8a3a')
+      return
+    }
+
+    if (def.effect === 'invisible' || item === 'anillo') {
+      p.ringActive = def.duration || 300
+      p.ringShimmer = def.duration || 300
       log('e', '¡El Anillo te hace invisible!')
       notify('💍 INVISIBLE', '#c8a84b')
-      if (S.current.nazgul && S.current.nazgul.hp > 0) {
-        S.current.nazgul.state = 'confused'
-      }
-      for (const naz of S.current.nazgulList) {
-        if (naz.hp > 0) naz.state = 'confused'
-      }
-    } else if (item === 'miruvor') {
-      p.hp = p.maxhp
+      if (S.current.nazgul?.hp > 0) S.current.nazgul.state = 'confused'
+      for (const naz of S.current.nazgulList) if (naz.hp > 0) naz.state = 'confused'
+      if (item !== 'anillo') p.inv.splice(idx, 1)
+      return
+    }
+
+    if (def.effect === 'cure') {
+      p.invT = Math.max(p.invT, 60)
       p.inv.splice(idx, 1)
-      log('s', 'Bebes miruvor. HP restaurado.')
-      notify('HP FULL', '#5a6a3a')
-    } else if (item === 'espada' || item === 'baston') {
-      notify('Pasiva activa', '#c8a84b')
+      log('s', 'Antídoto aplicado. Efectos negativos curados.')
+      notify('✓ CURADO', '#5a8a3a')
+      return
+    }
+
+    if (def.effect === 'maxhp_perm') {
+      p.maxhp += 5
+      p.hp = Math.min(p.hp + 5, p.maxhp)
+      p.inv.splice(idx, 1)
+      log('s', 'Elixir bebido. +5 HP máx permanente.')
+      notify('+5 HP MÁX', '#c8a84b')
+      return
+    }
+
+    if (def.effect === 'maxhp_up') {
+      p.maxhp += 1
+      p.inv.splice(idx, 1)
+      p.activeEffects.push({ effect: 'maxhp_up', duration: def.duration || 3600 })
+      log('s', 'Miel consumida. +1 HP máx temporal.')
+      notify('+1 HP MÁX', '#c8a84b')
+      return
+    }
+
+    if (def.effect === 'stealth') {
+      p.invT = Math.max(p.invT, 180)
+      p.inv.splice(idx, 1)
+      log('s', 'Capucha puesta. Reduce detección 3s.')
+      notify('OCULTO', '#5a8a3a')
+      return
+    }
+
+    // ——— ARMAS (se equipan al inventario) ———
+    if (def.type === 'weapon') {
+      notify(`${def.icon} EQUIPADA`, '#c8a84b')
+      log('i', `Arma equipada: ${def.icon} ${def.desc.split('.')[0]}`)
+      return  // no se consume, se equipan en combat
+    }
+
+    // ——— HECHIZOS ———
+    if (def.type === 'spell') {
+      if (p.spellCooldowns[item] && p.spellCooldowns[item] > 0) {
+        log('d', `Hechizo en cooldown. ${p.spellCooldowns[item]}s`)
+        return
+      }
+
+      if (def.effect === 'group_shield' && p.char === 'gandalf') {
+        p.activeEffects.push({ effect: 'group_shield', duration: def.duration || 600 })
+        p.invT = Math.max(p.invT, (def.duration || 600) / 60)
+        p.spellCooldowns[item] = 300
+        log('e', 'GANDALF: ¡Escudo Istari! Todos protegidos.')
+        notify('🔵 ESCUDO', '#8aaa6e')
+        p.inv.splice(idx, 1)
+        return
+      }
+
+      if (def.effect === 'area_fire' && p.char === 'gandalf') {
+        const allNaz = [
+          ...(S.current.nazgul?.hp > 0 ? [S.current.nazgul] : []),
+          ...S.current.nazgulList.filter(n => n.hp > 0)
+        ]
+        for (const naz of allNaz) {
+          const dx = naz.x - p.x, dy = naz.y - p.y
+          const dist = Math.sqrt(dx*dx + dy*dy)
+          if (dist < 4*T) {
+            naz.hp -= 10
+            S.current.fx.push({ x: naz.x, y: naz.y-20, text: '🔥 -10', color: '#e24b4a', vy: -1, life: 40 })
+            if (naz.hp <= 0) { naz.state = 'dying'; naz.deathFrame = 0 }
+          }
+        }
+        p.spellCooldowns[item] = 240
+        log('e', 'GANDALF: ¡Fuego Istari!')
+        notify('🔥 FUEGO', '#e24b4a')
+        p.inv.splice(idx, 1)
+        return
+      }
+
+      if (def.effect === 'mass_confuse' && p.char === 'gandalf') {
+        const allNaz = [
+          ...(S.current.nazgul?.hp > 0 ? [S.current.nazgul] : []),
+          ...S.current.nazgulList.filter(n => n.hp > 0)
+        ]
+        for (const naz of allNaz) {
+          naz.state = 'confused'
+          S.current.fx.push({ x: naz.x, y: naz.y-20, text: '✨ CONFUSO', color: '#e8e0a0', vy: -1, life: 50 })
+        }
+        p.spellCooldowns[item] = 180
+        log('e', 'GANDALF: ¡Luz de Eärendil! ¡Todos confundidos!')
+        notify('✨ LUZ', '#e8e0a0')
+        p.inv.splice(idx, 1)
+        return
+      }
+
+      if (def.effect === 'arrow_rain' && p.char === 'legolas') {
+        const allNaz = [
+          ...(S.current.nazgul?.hp > 0 ? [S.current.nazgul] : []),
+          ...S.current.nazgulList.filter(n => n.hp > 0)
+        ]
+        for (const naz of allNaz) {
+          const dx = naz.x - p.x, dy = naz.y - p.y
+          const dist = Math.sqrt(dx*dx + dy*dy)
+          if (dist < 6*T) {
+            naz.hp -= 7
+            for (let i = 0; i < 5; i++) {
+              S.current.parts.push({
+                x: naz.x, y: naz.y,
+                vx: (Math.random()-0.5)*3, vy: -Math.random()*3,
+                color: '#d4a820', life: 20, maxLife: 20
+              })
+            }
+            S.current.fx.push({ x: naz.x, y: naz.y-20, text: '🏹 -7', color: '#d4a820', vy: -1, life: 35 })
+            if (naz.hp <= 0) { naz.state = 'dying'; naz.deathFrame = 0 }
+          }
+        }
+        p.spellCooldowns[item] = 200
+        log('e', 'LEGOLAS: ¡Lluvia de Flechas!')
+        notify('🏹 LLUVIA', '#d4a820')
+        p.inv.splice(idx, 1)
+        return
+      }
     }
   }, [log, notify])
 
@@ -1195,6 +1344,20 @@ export default function GamePage() {
     if (p.daggerAnim > 0) p.daggerAnim--
     if (p.staffRayAnim > 0) p.staffRayAnim--
     if (p.staffSwingAnim > 0) p.staffSwingAnim--
+    // Decrementar cooldowns de hechizos
+    for (const k of Object.keys(p.spellCooldowns)) {
+      if (p.spellCooldowns[k] > 0) p.spellCooldowns[k]--
+    }
+    // Decrementar efectos activos
+    p.activeEffects = p.activeEffects.filter(e => {
+      e.duration--
+      if (e.duration <= 0) {
+        // Efecto expiró
+        if (e.effect === 'group_shield' && p.invT > 0) p.invT = 0
+        if (e.effect === 'maxhp_up') { p.maxhp = Math.max(p.hp, p.maxhp - 1); p.hp = Math.min(p.hp, p.maxhp) }
+      }
+      return e.duration > 0
+    })
 
     if (st.frameCount === 180 && st.gameMode === 'horde') {
       log('i', 'Habla con Gandalf antes de que llegue el Nazgûl.')
