@@ -134,6 +134,7 @@ interface Nazgul {
   spd: number
   dmg: number
   state: 'hunt' | 'chase_player' | 'flee_gandalf' | 'confused' | 'dying'
+  confusedTimer: number
   dir: Dir
   frame: number
   atkT: number
@@ -455,6 +456,7 @@ export default function GamePage() {
       invT: 0,
       deathFrame: 0,
       waveNum,
+      confusedTimer: 0,
     }
   }, [])
 
@@ -927,6 +929,7 @@ export default function GamePage() {
         ]
         for (const naz of allNaz) {
           naz.state = 'confused'
+          naz.confusedTimer = 300
           S.current.fx.push({ x: naz.x, y: naz.y-20, text: '✨ CONFUSO', color: '#e8e0a0', vy: -1, life: 50 })
         }
         p.spellCooldowns[item] = 180
@@ -1698,8 +1701,10 @@ export default function GamePage() {
       naz.frame++
 
       if (naz.state === 'confused') {
-        if (p.ringActive === 0) {
+        naz.confusedTimer = (naz.confusedTimer || 0) - 1
+        if (naz.confusedTimer <= 0 && p.ringActive === 0) {
           naz.state = 'hunt'
+          naz.confusedTimer = 0
         } else {
           const randAngle = Math.random() * Math.PI * 2
           naz.x += Math.cos(randAngle) * naz.spd * 0.5
@@ -2846,9 +2851,6 @@ export default function GamePage() {
               <div className="text-[#c8a84b] text-xs font-medium">
                 💰 {S.current.p.gold} MC
               </div>
-              <div className="text-[#c8a84b] text-xs font-medium">
-                💰 {S.current.p.gold} MC
-              </div>
               {S.current.p && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-[#c8a84b] text-[10px] font-bold">Nv.{S.current.p.level}</span>
@@ -2983,7 +2985,7 @@ export default function GamePage() {
             return (
             <div
               className="absolute bottom-full left-0 right-0 mx-2 mb-1 rounded-xl border border-[rgba(200,168,75,0.3)] overflow-hidden z-30"
-              style={{ background: 'rgba(10,12,8,0.97)' }}
+              style={{ background: 'rgba(10,12,8,0.97)', maxHeight: '220px', overflowY: 'auto' }}
             >
               <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(200,168,75,0.15)]">
                 <span className="text-[#c8a84b] text-xs font-bold">{shop.icon} {shop.name}</span>
