@@ -144,6 +144,24 @@ interface Nazgul {
   waveNum: number
 }
 
+interface HeroCompanion {
+  char: string
+  x: number
+  y: number
+  hp: number
+  maxhp: number
+  dmg: number
+  range: number
+  state: 'idle' | 'following'
+  dir: Dir
+  frame: number
+  patrol: { x: number; y: number }[]
+  patrolIdx: number
+  patrolTimer: number
+  attackCooldown: number
+  weaponSlot: 'main' | 'secondary'
+}
+
 interface GandalfAlly {
   x: number
   y: number
@@ -236,6 +254,7 @@ interface GameState {
   nazgul: Nazgul | null
   nazgulList: Nazgul[]
   gandalfAlly: GandalfAlly | null
+  heroCompanions: HeroCompanion[]
   invNaz: boolean
   invTimer: number
   invWarned: boolean
@@ -460,6 +479,35 @@ export default function GamePage() {
     }
   }, [])
 
+  const spawnHeroCompanions = useCallback((playerChar: string): HeroCompanion[] => {
+    const HERO_POSITIONS: Record<string, { x: number; y: number; patrol: {x:number;y:number}[] }> = {
+      frodo:   { x: 44*T, y: 36*T, patrol: [{x:43*T,y:36*T},{x:45*T,y:36*T},{x:44*T,y:37*T},{x:44*T,y:35*T}] },
+      aragorn: { x: 46*T, y: 40*T, patrol: [{x:45*T,y:40*T},{x:47*T,y:40*T},{x:46*T,y:41*T},{x:46*T,y:39*T}] },
+      gandalf: { x: 44*T, y: 42*T, patrol: [{x:43*T,y:42*T},{x:45*T,y:42*T},{x:44*T,y:43*T},{x:44*T,y:41*T}] },
+      legolas: { x: 48*T, y: 36*T, patrol: [{x:47*T,y:36*T},{x:49*T,y:36*T},{x:48*T,y:37*T},{x:48*T,y:35*T}] },
+      gimli:   { x: 48*T, y: 42*T, patrol: [{x:47*T,y:42*T},{x:49*T,y:42*T},{x:48*T,y:43*T},{x:48*T,y:41*T}] },
+    }
+    return Object.keys(CHARS)
+      .filter(c => c !== playerChar && c !== 'gandalf')
+      .map(char => {
+        const pos = HERO_POSITIONS[char] || { x: 45*T, y: 38*T, patrol: [{x:44*T,y:38*T},{x:46*T,y:38*T}] }
+        const charDef = CHARS[char]
+        return {
+          char,
+          x: pos.x, y: pos.y,
+          hp: charDef.maxhp, maxhp: charDef.maxhp,
+          dmg: charDef.dmg, range: charDef.range,
+          state: 'idle' as const,
+          dir: 'down' as Dir,
+          frame: 0,
+          patrol: pos.patrol,
+          patrolIdx: 0, patrolTimer: 80,
+          attackCooldown: 0,
+          weaponSlot: 'main' as const,
+        }
+      })
+  }, [])
+
   const spawnGandalfAlly = useCallback((): GandalfAlly => {
     const x = 20 * T, y = 38 * T
     return {
@@ -526,6 +574,7 @@ export default function GamePage() {
       nazgul: null,
       nazgulList: [],
       gandalfAlly: spawnGandalfAlly(),
+      heroCompanions: spawnHeroCompanions(charKey),
       invNaz: false,
       invTimer: mode === 'exploration' ? 999999 : 360,
       invWarned: false,
@@ -566,7 +615,7 @@ export default function GamePage() {
     }
     log('i', 'Bienvenido a Hobbiton. Protege a los aldeanos.')
     setScreen('game')
-  }, [buildMap, spawnVillagers, spawnGandalfAlly, log])
+  }, [buildMap, spawnVillagers, spawnGandalfAlly, spawnHeroCompanions, log])
 
   const revive = useCallback(() => {
     if (!S.current || !S.current.p) return
@@ -764,6 +813,24 @@ export default function GamePage() {
     if (!S.current) return
     const dlg = S.current.dlg
     if (opt.action === 'close') {
+      dlg.active = false
+    } else if (opt.action && opt.action.startsWith('hero_follow_')) {
+      const charKey = opt.action.replace('hero_follow_', '')
+      const hero = S.current.heroCompanions.find(h => h.char === charKey)
+      if (hero) {
+        hero.state = 'following'
+        log('e', `${CHARS[charKey].name}: ¡Con vos hasta el final!`)
+        notify(`✦ ${CHARS[charKey].name} te sigue ✦`, '#c8a84b')
+      }
+      dlg.active = false
+    } else if (opt.action && opt.action.startsWith('hero_stay_')) {
+      const charKey = opt.action.replace('hero_stay_', '')
+      const hero = S.current.heroCompanions.find(h => h.char === charKey)
+      if (hero) {
+        hero.state = 'idle'
+        log('e', `${CHARS[charKey].name}: Esperaré aquí.`)
+        notify(`${CHARS[charKey].name} patrulla`, '#8a8860')
+      }
       dlg.active = false
     } else if (opt.action === 'gandalf_follow') {
       if (S.current.gandalfAlly) {
@@ -1270,6 +1337,24 @@ export default function GamePage() {
       }
     }
 
+    // Detectar hero companion cercano
+    for (const hero of S.current.heroCompanions) {
+      const dx = hero.x - p.x, dy = hero.y - p.y
+      if (Math.sqrt(dx*dx+dy*dy) < 2.5 * T) {
+        const heroName = CHARS[hero.char].name
+        const isFollowing = hero.state === 'following'
+        log('e', `${heroName}: ${isFollowing ? 'Contigo hasta el fin.' : '¿Necesitás ayuda?'}`)
+        S.current.dlg = {
+          active: true, speaker: heroName, lines: [], lineIdx: 0,
+          opts: isFollowing
+            ? [{ l: `Esperá aquí, ${heroName}.`, action: `hero_stay_${hero.char}` }, { l: 'Sigamos juntos.', action: 'close' }]
+            : [{ l: `¡Únete a nosotros, ${heroName}!`, action: `hero_follow_${hero.char}` }, { l: 'Quédate aquí.', action: 'close' }],
+        }
+        forceUpdate(n => n + 1)
+        return
+      }
+    }
+
     const g = S.current.gandalfAlly
     if (g) {
       const dx = g.x - p.x, dy = g.y - p.y
@@ -1493,6 +1578,48 @@ export default function GamePage() {
         const target = v.patrol[v.patrolIdx]
         const arrived = moveToward(v, target.x, target.y, 0.5)
         if (!arrived) v.frame++
+      }
+    }
+
+    // — UPDATE HERO COMPANIONS —
+    for (const hero of st.heroCompanions) {
+      if (hero.attackCooldown > 0) hero.attackCooldown--
+      const hpdx = p.x - hero.x, hpdy = p.y - hero.y
+      const hpDist = Math.sqrt(hpdx*hpdx + hpdy*hpdy)
+
+      if (hero.state === 'following') {
+        const followDist = 2.8 * T
+        if (hpDist > 14 * T) {
+          const angle = Math.atan2(hpdy, hpdx)
+          hero.x = p.x - Math.cos(angle) * followDist
+          hero.y = p.y - Math.sin(angle) * followDist
+        } else if (hpDist > followDist + T) {
+          const angle = Math.atan2(hpdy, hpdx)
+          moveToward(hero, p.x - Math.cos(angle)*followDist, p.y - Math.sin(angle)*followDist, CHARS[hero.char].spd * 0.9)
+          hero.frame++
+        }
+        if (hero.attackCooldown === 0) {
+          const allNaz = [...(st.nazgul && st.nazgul.hp>0 && st.nazgul.state!=='dying'?[st.nazgul]:[]), ...st.nazgulList.filter(n=>n!==st.nazgul&&n.hp>0&&n.state!=='dying')]
+          for (const target of allNaz) {
+            const dx = target.x - hero.x, dy = target.y - hero.y
+            if (Math.sqrt(dx*dx+dy*dy) < hero.range * T * 1.5) {
+              hero.attackCooldown = 120
+              target.hp -= hero.dmg
+              st.fx.push({ x: target.x, y: target.y-20, text: `-${hero.dmg}`, color: '#c8a84b', vy: -1, life: 35 })
+              if (target.hp <= 0) { target.state='dying'; target.deathFrame=0 }
+              else target.state='flee_gandalf'
+              break
+            }
+          }
+        }
+      } else {
+        hero.patrolTimer--
+        if (hero.patrolTimer <= 0) {
+          hero.patrolIdx = (hero.patrolIdx + 1) % hero.patrol.length
+          hero.patrolTimer = 80
+        }
+        const arrived = moveToward(hero, hero.patrol[hero.patrolIdx].x, hero.patrol[hero.patrolIdx].y, 0.4)
+        if (!arrived) hero.frame++
       }
     }
 
@@ -2387,6 +2514,31 @@ export default function GamePage() {
       ctx.fillStyle = v.state === 'flee' ? '#e08040' : '#8aaa6e'
       ctx.textAlign = 'center'
       ctx.fillText(v.name, vx, vy + 20)
+    }
+
+    // Render hero companions
+    for (const hero of st.heroCompanions) {
+      const hx = hero.x - sx, hy = hero.y - sy
+      drawSprite(ctx, hero.char, hero.dir, hero.frame, hx, hy, 2, undefined, hero.weaponSlot)
+      ctx.font = 'bold 7px monospace'
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'
+      ctx.fillRect(hx - 20, hy + 12, 40, 10)
+      ctx.fillStyle = '#c8a84b'
+      ctx.textAlign = 'center'
+      ctx.fillText(CHARS[hero.char].name, hx, hy + 20)
+      if (hero.state === 'following') {
+        ctx.strokeStyle = 'rgba(200,168,75,0.4)'
+        ctx.lineWidth = 2
+        ctx.beginPath(); ctx.arc(hx, hy, 22, 0, Math.PI*2); ctx.stroke()
+      }
+      if (p) {
+        const dx = hero.x - p.x, dy = hero.y - p.y
+        if (Math.sqrt(dx*dx+dy*dy) < 2.5*T) {
+          ctx.font = 'bold 10px monospace'
+          ctx.fillStyle = '#c8a84b'
+          ctx.fillText('[E]', hx, hy - 28)
+        }
+      }
     }
 
     const g = st.gandalfAlly
