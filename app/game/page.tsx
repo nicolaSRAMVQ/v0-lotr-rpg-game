@@ -1344,6 +1344,9 @@ export default function GamePage() {
     if (p.daggerAnim > 0) p.daggerAnim--
     if (p.staffRayAnim > 0) p.staffRayAnim--
     if (p.staffSwingAnim > 0) p.staffSwingAnim--
+    // Inicializar si no existen (compatibilidad con partidas antiguas)
+    if (!p.spellCooldowns) p.spellCooldowns = {}
+    if (!p.activeEffects) p.activeEffects = []
     // Decrementar cooldowns de hechizos
     for (const k of Object.keys(p.spellCooldowns)) {
       if (p.spellCooldowns[k] > 0) p.spellCooldowns[k]--
