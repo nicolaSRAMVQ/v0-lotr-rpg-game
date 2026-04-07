@@ -1670,15 +1670,6 @@ export default function GamePage() {
             } else assignedTarget.state='flee_gandalf'
           }
         }
-          }
-          if (assignedTarget) {
-            hero.attackCooldown = tactics.atkCd
-            assignedTarget.hp -= hero.dmg
-            st.fx.push({ x: assignedTarget.x, y: assignedTarget.y-20, text: `-${hero.dmg}`, color: '#c8a84b', vy: -1, life: 35 })
-            if (assignedTarget.hp <= 0) { assignedTarget.state='dying'; assignedTarget.deathFrame=0 }
-            else assignedTarget.state='flee_gandalf'
-          }
-        }
       } else {
         hero.patrolTimer--
         if (hero.patrolTimer <= 0) {
