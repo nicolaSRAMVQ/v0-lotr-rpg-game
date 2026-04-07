@@ -1583,12 +1583,12 @@ export default function GamePage() {
 
     // — UPDATE HERO COMPANIONS —
     // Configuración táctica por personaje
-    const HERO_TACTICS: Record<string, { formAngle: number; formDist: number; detectRange: number; atkCd: number }> = {
-      frodo:   { formAngle: Math.PI * 0.75,  formDist: 2.0 * T, detectRange: 4 * T, atkCd: 80  },
-      aragorn: { formAngle: Math.PI * 0.25,  formDist: 3.0 * T, detectRange: 5 * T, atkCd: 90  },
-      legolas: { formAngle: Math.PI * 1.5,   formDist: 4.5 * T, detectRange: 8 * T, atkCd: 100 },
-      gimli:   { formAngle: Math.PI * 1.25,  formDist: 2.5 * T, detectRange: 3 * T, atkCd: 110 },
-      gandalf: { formAngle: Math.PI * 1.0,   formDist: 3.5 * T, detectRange: 7 * T, atkCd: 120 },
+    const HERO_TACTICS: Record<string, { formAngle: number; formDist: number; detectRange: number; interceptRange: number; atkCd: number }> = {
+      frodo:   { formAngle: Math.PI * 0.75,  formDist: 2.0 * T, detectRange: 5  * T, interceptRange: 10 * T, atkCd: 50  },
+      aragorn: { formAngle: Math.PI * 0.25,  formDist: 3.0 * T, detectRange: 6  * T, interceptRange: 12 * T, atkCd: 55  },
+      legolas: { formAngle: Math.PI * 1.5,   formDist: 4.5 * T, detectRange: 10 * T, interceptRange: 14 * T, atkCd: 60  },
+      gimli:   { formAngle: Math.PI * 1.25,  formDist: 2.5 * T, detectRange: 4  * T, interceptRange: 9  * T, atkCd: 65  },
+      gandalf: { formAngle: Math.PI * 1.0,   formDist: 3.5 * T, detectRange: 10 * T, interceptRange: 14 * T, atkCd: 70  },
     }
 
     // Target assignment — cada hero reclama un nazgul distinto
@@ -1605,39 +1605,71 @@ export default function GamePage() {
       const tactics = HERO_TACTICS[hero.char] || HERO_TACTICS['aragorn']
 
       if (hero.state === 'following') {
-        // — FORMACIÓN: posición fija relativa al jugador según ángulo propio —
-        const targetX = p.x + Math.cos(tactics.formAngle) * tactics.formDist
-        const targetY = p.y + Math.sin(tactics.formAngle) * tactics.formDist
-        const distToPos = Math.sqrt((hero.x-targetX)**2 + (hero.y-targetY)**2)
-        if (hpDist > 16 * T) {
-          // Teleport si se aleja demasiado
-          hero.x = targetX
-          hero.y = targetY
-        } else if (distToPos > T * 0.8) {
-          moveToward(hero, targetX, targetY, CHARS[hero.char].spd * 0.85)
+        // — INTERCEPCIÓN: si hay nazgul en rango amplio, ir a interceptarlo —
+        const nearestNaz = allActiveNaz
+          .filter(n => !claimedTargets.has(n))
+          .map(n => { const dx=n.x-hero.x, dy=n.y-hero.y; return { naz:n, dist:Math.sqrt(dx*dx+dy*dy) } })
+          .sort((a,b) => a.dist - b.dist)[0]
+
+        const intercepting = nearestNaz && nearestNaz.dist < tactics.interceptRange
+
+        if (intercepting) {
+          // Moverse hacia el nazgul para interceptarlo
+          const inaz = nearestNaz!.naz
+          moveToward(hero, inaz.x, inaz.y, CHARS[hero.char].spd * 1.0)
           hero.frame++
-        }
-        // Actualizar dirección hacia el objetivo formación
-        const dx2 = targetX - hero.x, dy2 = targetY - hero.y
-        if (Math.abs(dx2) > Math.abs(dy2)) {
-          hero.dir = dx2 > 0 ? 'right' : 'left'
+          const ddx = inaz.x - hero.x, ddy = inaz.y - hero.y
+          if (Math.abs(ddx) > Math.abs(ddy)) hero.dir = ddx > 0 ? 'right' : 'left'
+          else hero.dir = ddy > 0 ? 'down' : 'up'
         } else {
-          hero.dir = dy2 > 0 ? 'down' : 'up'
+          // — FORMACIÓN: volver a posición relativa al jugador —
+          const targetX = p.x + Math.cos(tactics.formAngle) * tactics.formDist
+          const targetY = p.y + Math.sin(tactics.formAngle) * tactics.formDist
+          const distToPos = Math.sqrt((hero.x-targetX)**2 + (hero.y-targetY)**2)
+          if (hpDist > 16 * T) {
+            hero.x = targetX; hero.y = targetY
+          } else if (distToPos > T * 0.8) {
+            moveToward(hero, targetX, targetY, CHARS[hero.char].spd * 0.85)
+            hero.frame++
+          }
+          const dx2 = targetX - hero.x, dy2 = targetY - hero.y
+          if (Math.abs(dx2) > Math.abs(dy2)) hero.dir = dx2 > 0 ? 'right' : 'left'
+          else hero.dir = dy2 > 0 ? 'down' : 'up'
         }
 
         // — COMBATE: target assignment independiente —
         if (hero.attackCooldown === 0) {
-          let assignedTarget = null
-          // Buscar nazgul no asignado dentro del rango
-          for (const naz of allActiveNaz) {
-            if (claimedTargets.has(naz)) continue
-            const dx = naz.x - hero.x, dy = naz.y - hero.y
-            const dist = Math.sqrt(dx*dx + dy*dy)
-            if (dist < tactics.detectRange) {
-              assignedTarget = naz
-              claimedTargets.add(naz)
-              break
-            }
+          // Atacar al nazgul más cercano dentro de detectRange
+          // Preferir uno no reclamado, pero si no hay, atacar cualquiera
+          let assignedTarget = allActiveNaz
+            .filter(n => !claimedTargets.has(n))
+            .map(n => { const dx=n.x-hero.x, dy=n.y-hero.y; return { naz:n, dist:Math.sqrt(dx*dx+dy*dy) } })
+            .filter(e => e.dist < tactics.detectRange)
+            .sort((a,b) => a.dist-b.dist)[0]?.naz
+          // Fallback: atacar cualquier nazgul en rango aunque esté reclamado
+          if (!assignedTarget) {
+            assignedTarget = allActiveNaz
+              .map(n => { const dx=n.x-hero.x, dy=n.y-hero.y; return { naz:n, dist:Math.sqrt(dx*dx+dy*dy) } })
+              .filter(e => e.dist < tactics.detectRange)
+              .sort((a,b) => a.dist-b.dist)[0]?.naz
+          }
+          if (assignedTarget) {
+            claimedTargets.add(assignedTarget)
+            hero.attackCooldown = tactics.atkCd
+            assignedTarget.hp -= hero.dmg
+            st.fx.push({ x: assignedTarget.x, y: assignedTarget.y-20, text: `-${hero.dmg}`, color: '#c8a84b', vy: -1, life: 35 })
+            // Loot al piso cuando el hero mata
+            if (assignedTarget.hp <= 0) {
+              assignedTarget.state='dying'; assignedTarget.deathFrame=0
+              const goldDrop = 5 + assignedTarget.waveNum * 2
+              st.droppedItems.push({ x: assignedTarget.x+(Math.random()-.5)*T, y: assignedTarget.y+(Math.random()-.5)*T, item:'gold', bouncePhase:0, amount:goldDrop })
+              if (Math.random() < 0.35) {
+                const drops = ['lembas','miruvor','espada_rota']
+                st.droppedItems.push({ x: assignedTarget.x+(Math.random()-.5)*T*2, y: assignedTarget.y+(Math.random()-.5)*T*2, item:drops[Math.floor(Math.random()*drops.length)], bouncePhase:Math.random()*Math.PI })
+              }
+            } else assignedTarget.state='flee_gandalf'
+          }
+        }
           }
           if (assignedTarget) {
             hero.attackCooldown = tactics.atkCd
