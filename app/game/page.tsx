@@ -1582,34 +1582,69 @@ export default function GamePage() {
     }
 
     // — UPDATE HERO COMPANIONS —
+    // Configuración táctica por personaje
+    const HERO_TACTICS: Record<string, { formAngle: number; formDist: number; detectRange: number; atkCd: number }> = {
+      frodo:   { formAngle: Math.PI * 0.75,  formDist: 2.0 * T, detectRange: 4 * T, atkCd: 80  },
+      aragorn: { formAngle: Math.PI * 0.25,  formDist: 3.0 * T, detectRange: 5 * T, atkCd: 90  },
+      legolas: { formAngle: Math.PI * 1.5,   formDist: 4.5 * T, detectRange: 8 * T, atkCd: 100 },
+      gimli:   { formAngle: Math.PI * 1.25,  formDist: 2.5 * T, detectRange: 3 * T, atkCd: 110 },
+      gandalf: { formAngle: Math.PI * 1.0,   formDist: 3.5 * T, detectRange: 7 * T, atkCd: 120 },
+    }
+
+    // Target assignment — cada hero reclama un nazgul distinto
+    const allActiveNaz = [
+      ...(st.nazgul && st.nazgul.hp > 0 && st.nazgul.state !== 'dying' ? [st.nazgul] : []),
+      ...st.nazgulList.filter(n => n !== st.nazgul && n.hp > 0 && n.state !== 'dying')
+    ]
+    const claimedTargets = new Set<object>()
+
     for (const hero of st.heroCompanions) {
       if (hero.attackCooldown > 0) hero.attackCooldown--
       const hpdx = p.x - hero.x, hpdy = p.y - hero.y
       const hpDist = Math.sqrt(hpdx*hpdx + hpdy*hpdy)
+      const tactics = HERO_TACTICS[hero.char] || HERO_TACTICS['aragorn']
 
       if (hero.state === 'following') {
-        const followDist = 2.8 * T
-        if (hpDist > 14 * T) {
-          const angle = Math.atan2(hpdy, hpdx)
-          hero.x = p.x - Math.cos(angle) * followDist
-          hero.y = p.y - Math.sin(angle) * followDist
-        } else if (hpDist > followDist + T) {
-          const angle = Math.atan2(hpdy, hpdx)
-          moveToward(hero, p.x - Math.cos(angle)*followDist, p.y - Math.sin(angle)*followDist, CHARS[hero.char].spd * 0.9)
+        // — FORMACIÓN: posición fija relativa al jugador según ángulo propio —
+        const targetX = p.x + Math.cos(tactics.formAngle) * tactics.formDist
+        const targetY = p.y + Math.sin(tactics.formAngle) * tactics.formDist
+        const distToPos = Math.sqrt((hero.x-targetX)**2 + (hero.y-targetY)**2)
+        if (hpDist > 16 * T) {
+          // Teleport si se aleja demasiado
+          hero.x = targetX
+          hero.y = targetY
+        } else if (distToPos > T * 0.8) {
+          moveToward(hero, targetX, targetY, CHARS[hero.char].spd * 0.85)
           hero.frame++
         }
+        // Actualizar dirección hacia el objetivo formación
+        const dx2 = targetX - hero.x, dy2 = targetY - hero.y
+        if (Math.abs(dx2) > Math.abs(dy2)) {
+          hero.dir = dx2 > 0 ? 'right' : 'left'
+        } else {
+          hero.dir = dy2 > 0 ? 'down' : 'up'
+        }
+
+        // — COMBATE: target assignment independiente —
         if (hero.attackCooldown === 0) {
-          const allNaz = [...(st.nazgul && st.nazgul.hp>0 && st.nazgul.state!=='dying'?[st.nazgul]:[]), ...st.nazgulList.filter(n=>n!==st.nazgul&&n.hp>0&&n.state!=='dying')]
-          for (const target of allNaz) {
-            const dx = target.x - hero.x, dy = target.y - hero.y
-            if (Math.sqrt(dx*dx+dy*dy) < hero.range * T * 1.5) {
-              hero.attackCooldown = 120
-              target.hp -= hero.dmg
-              st.fx.push({ x: target.x, y: target.y-20, text: `-${hero.dmg}`, color: '#c8a84b', vy: -1, life: 35 })
-              if (target.hp <= 0) { target.state='dying'; target.deathFrame=0 }
-              else target.state='flee_gandalf'
+          let assignedTarget = null
+          // Buscar nazgul no asignado dentro del rango
+          for (const naz of allActiveNaz) {
+            if (claimedTargets.has(naz)) continue
+            const dx = naz.x - hero.x, dy = naz.y - hero.y
+            const dist = Math.sqrt(dx*dx + dy*dy)
+            if (dist < tactics.detectRange) {
+              assignedTarget = naz
+              claimedTargets.add(naz)
               break
             }
+          }
+          if (assignedTarget) {
+            hero.attackCooldown = tactics.atkCd
+            assignedTarget.hp -= hero.dmg
+            st.fx.push({ x: assignedTarget.x, y: assignedTarget.y-20, text: `-${hero.dmg}`, color: '#c8a84b', vy: -1, life: 35 })
+            if (assignedTarget.hp <= 0) { assignedTarget.state='dying'; assignedTarget.deathFrame=0 }
+            else assignedTarget.state='flee_gandalf'
           }
         }
       } else {
