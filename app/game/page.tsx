@@ -350,7 +350,62 @@ export default function GamePage() {
   const audioCtxRef = useRef<AudioContext | null>(null)
 
   // Sistema de sonidos con Web Audio API (no necesita archivos)
-  const playSfx = useCallback((type: 'click' | 'hit' | 'pickup' | 'damage' | 'death' | 'heal') => {
+  // Generador de música lofi ambiental con Web Audio
+  const startLofiMusic = useCallback(() => {
+    if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume()
+    const ctx = audioCtxRef.current
+    if (!ctx) return
+    
+    const createNote = (freq: number, time: number, duration: number, vel: number = 0.15) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      const filter = ctx.createBiquadFilter()
+      
+      osc.connect(filter)
+      filter.connect(gain)
+      gain.connect(ctx.destination)
+      
+      osc.frequency.value = freq
+      osc.type = 'sine'
+      filter.type = 'lowpass'
+      filter.frequency.value = 600
+      
+      gain.gain.setValueAtTime(0, time)
+      gain.gain.linearRampToValueAtTime(vel, time + 0.05)
+      gain.gain.linearRampToValueAtTime(vel * 0.7, time + duration * 0.7)
+      gain.gain.linearRampToValueAtTime(0, time + duration)
+      
+      osc.start(time)
+      osc.stop(time + duration)
+    }
+    
+    // Acordes lofi: Am, F, C, G en loop
+    const chords = [
+      [220, 330, 440],   // Am
+      [174, 261, 349],   // F
+      [262, 330, 523],   // C
+      [196, 294, 392]    // G
+    ]
+    
+    let noteIdx = 0
+    const scheduleLoop = () => {
+      if (musicMuted || !audioRef.current || !audioRef.current.playing) return
+      
+      const now = ctx.currentTime
+      const chord = chords[noteIdx % chords.length]
+      const duration = 2
+      
+      for (const freq of chord) {
+        createNote(freq, now, duration, 0.12)
+      }
+      
+      noteIdx++
+      setTimeout(scheduleLoop, duration * 1000)
+    }
+    
+    audioRef.current = { playing: true, schedule: scheduleLoop } as any
+    scheduleLoop()
+  }, [musicMuted])
     if (!sfxEnabled) return
     try {
       if (!audioCtxRef.current) {
@@ -3006,25 +3061,17 @@ export default function GamePage() {
   }, [advanceDlg, doAttack, closeDlg, tryInteract, useItem])
 
   useEffect(() => {
-    if (screen === 'game' && !audioRef.current) {
-      // Precargar el audio pero no reproducir — esperar click del usuario
-      const audio = new Audio('/music/lotr_lofi.mp3')
-      audio.loop = true
-      audio.volume = 0.8
-      audio.preload = 'auto'
-      console.log('[v0] Audio inicializado:', audio.src)
-      audioRef.current = audio
+    if (screen === 'game' && !audioRef.current?.playing) {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      }
+      startLofiMusic()
     }
-    if (screen !== 'game' && audioRef.current) {
-      const audio = audioRef.current
-      let vol = audio.volume
-      const fadeOut = setInterval(() => {
-        vol = Math.max(0, vol - 0.05)
-        audio.volume = vol
-        if (vol <= 0) { audio.pause(); audioRef.current = null; clearInterval(fadeOut) }
-      }, 60)
+    if (screen !== 'game' && audioRef.current?.playing) {
+      audioRef.current.playing = false
+      audioRef.current = null
     }
-  }, [screen])
+  }, [screen, startLofiMusic])
 
   useEffect(() => {
     const handleResize = () => {
@@ -3180,23 +3227,8 @@ export default function GamePage() {
                 onClick={() => {
                   const next = !musicMuted
                   setMusicMuted(next)
-                  console.log('[v0] Music button clicked, next state:', next)
-                  if (audioRef.current) {
-                    console.log('[v0] Audio exists, current src:', audioRef.current.src)
-                    if (!next) {
-                      console.log('[v0] Attempting to play audio...')
-                      audioRef.current.volume = 0
-                      audioRef.current.play()
-                        .then(() => console.log('[v0] Audio playing successfully'))
-                        .catch((err) => console.log('[v0] Audio play error:', err.message))
-                      let vol = 0
-                      const fi = setInterval(() => { vol = Math.min(0.8, vol + 0.03); if (audioRef.current) audioRef.current.volume = vol; if (vol >= 0.8) clearInterval(fi) }, 60)
-                    } else {
-                      console.log('[v0] Pausing audio')
-                      audioRef.current.pause()
-                    }
-                  } else {
-                    console.log('[v0] ERROR: audioRef.current is null!')
+                  if (!next) {
+                    startLofiMusic()
                   }
                 }}
                 className={`text-[10px] mt-0.5 px-1.5 py-0.5 rounded transition-all border ${musicMuted ? 'border-[rgba(200,168,75,0.5)] text-[#c8a84b] opacity-100 animate-pulse' : 'border-transparent text-[#5a6a3a] opacity-60 hover:opacity-100'}`}
