@@ -2934,6 +2934,7 @@ export default function GamePage() {
       audio.loop = true
       audio.volume = 0.8
       audio.preload = 'auto'
+      console.log('[v0] Audio inicializado:', audio.src)
       audioRef.current = audio
     }
     if (screen !== 'game' && audioRef.current) {
@@ -3101,15 +3102,23 @@ export default function GamePage() {
                 onClick={() => {
                   const next = !musicMuted
                   setMusicMuted(next)
+                  console.log('[v0] Music button clicked, next state:', next)
                   if (audioRef.current) {
+                    console.log('[v0] Audio exists, current src:', audioRef.current.src)
                     if (!next) {
+                      console.log('[v0] Attempting to play audio...')
                       audioRef.current.volume = 0
-                      audioRef.current.play().catch(() => {})
+                      audioRef.current.play()
+                        .then(() => console.log('[v0] Audio playing successfully'))
+                        .catch((err) => console.log('[v0] Audio play error:', err.message))
                       let vol = 0
                       const fi = setInterval(() => { vol = Math.min(0.8, vol + 0.03); if (audioRef.current) audioRef.current.volume = vol; if (vol >= 0.8) clearInterval(fi) }, 60)
                     } else {
+                      console.log('[v0] Pausing audio')
                       audioRef.current.pause()
                     }
+                  } else {
+                    console.log('[v0] ERROR: audioRef.current is null!')
                   }
                 }}
                 className={`text-[10px] mt-0.5 px-1.5 py-0.5 rounded transition-all border ${musicMuted ? 'border-[rgba(200,168,75,0.5)] text-[#c8a84b] opacity-100 animate-pulse' : 'border-transparent text-[#5a6a3a] opacity-60 hover:opacity-100'}`}
