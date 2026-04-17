@@ -2932,7 +2932,11 @@ export default function GamePage() {
       const audio = new Audio('/music/lotr_lofi.mp3')
       audio.loop = true
       audio.volume = 0
-      audio.play().catch(() => {})
+      audio.muted = musicMuted
+      // Intentar reproducir - requiere interacción del usuario en algunos navegadores
+      audio.play().catch((err) => {
+        console.log('[v0] Audio autoplay bloqueado, requiere interacción del usuario:', err.message)
+      })
       audioRef.current = audio
       // Fade in de 3 segundos
       let vol = 0
@@ -2952,7 +2956,7 @@ export default function GamePage() {
         if (vol <= 0) { audio.pause(); audioRef.current = null; clearInterval(fadeOut) }
       }, 60)
     }
-  }, [screen])
+  }, [screen, musicMuted])
 
   useEffect(() => {
     const handleResize = () => {
@@ -3091,10 +3095,24 @@ export default function GamePage() {
                 💰 {S.current.p.gold} MC
               </div>
               <button
-                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const next = !musicMuted; setMusicMuted(next); if (audioRef.current) audioRef.current.volume = next ? 0 : 1 }}
-                onClick={() => { const next = !musicMuted; setMusicMuted(next); if (audioRef.current) audioRef.current.volume = next ? 0 : 1 }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); 
+                  const next = !musicMuted
+                  setMusicMuted(next)
+                  if (audioRef.current) {
+                    audioRef.current.muted = next
+                    if (!next && audioRef.current.paused) audioRef.current.play().catch(() => {})
+                  }
+                }}
+                onClick={() => { 
+                  const next = !musicMuted
+                  setMusicMuted(next)
+                  if (audioRef.current) {
+                    audioRef.current.muted = next
+                    if (!next && audioRef.current.paused) audioRef.current.play().catch(() => {})
+                  }
+                }}
                 className="text-[10px] mt-0.5 opacity-60 hover:opacity-100 transition-opacity"
-                title={musicMuted ? 'Activar música' : 'Silenciar música'}
+                title={musicMuted ? 'Activar música (requiere interacción)' : 'Silenciar música'}
               >{musicMuted ? '🔇' : '🎵'}</button>
               {S.current.p && (
                 <div className="flex items-center gap-1 mt-0.5">
