@@ -349,63 +349,18 @@ export default function GamePage() {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
 
-  // Sistema de sonidos con Web Audio API (no necesita archivos)
-  // Generador de música lofi ambiental con Web Audio
+  // Iniciar reproducción de música lofi
   const startLofiMusic = useCallback(() => {
-    if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume()
-    const ctx = audioCtxRef.current
-    if (!ctx) return
-    
-    const createNote = (freq: number, time: number, duration: number, vel: number = 0.15) => {
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      const filter = ctx.createBiquadFilter()
-      
-      osc.connect(filter)
-      filter.connect(gain)
-      gain.connect(ctx.destination)
-      
-      osc.frequency.value = freq
-      osc.type = 'sine'
-      filter.type = 'lowpass'
-      filter.frequency.value = 600
-      
-      gain.gain.setValueAtTime(0, time)
-      gain.gain.linearRampToValueAtTime(vel, time + 0.05)
-      gain.gain.linearRampToValueAtTime(vel * 0.7, time + duration * 0.7)
-      gain.gain.linearRampToValueAtTime(0, time + duration)
-      
-      osc.start(time)
-      osc.stop(time + duration)
+    if (!audioRef.current) {
+      const audio = new Audio('/music/lotr_lofi.mp3')
+      audio.loop = true
+      audio.volume = 0.5
+      audioRef.current = audio
     }
-    
-    // Acordes lofi: Am, F, C, G en loop
-    const chords = [
-      [220, 330, 440],   // Am
-      [174, 261, 349],   // F
-      [262, 330, 523],   // C
-      [196, 294, 392]    // G
-    ]
-    
-    let noteIdx = 0
-    const scheduleLoop = () => {
-      if (musicMuted || !audioRef.current || !audioRef.current.playing) return
-      
-      const now = ctx.currentTime
-      const chord = chords[noteIdx % chords.length]
-      const duration = 2
-      
-      for (const freq of chord) {
-        createNote(freq, now, duration, 0.12)
-      }
-      
-      noteIdx++
-      setTimeout(scheduleLoop, duration * 1000)
+    if (audioRef.current && audioRef.current.paused) {
+      audioRef.current.play().catch(() => {})
     }
-    
-    audioRef.current = { playing: true, schedule: scheduleLoop } as any
-    scheduleLoop()
-  }, [musicMuted])
+  }, [])
 
   const playSfx = useCallback((type: 'click' | 'hit' | 'pickup' | 'damage' | 'death' | 'heal') => {
     if (!sfxEnabled) return
@@ -3064,14 +3019,10 @@ export default function GamePage() {
 
   useEffect(() => {
     if (screen === 'game' && !audioRef.current?.playing) {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
-      }
       startLofiMusic()
     }
-    if (screen !== 'game' && audioRef.current?.playing) {
-      audioRef.current.playing = false
-      audioRef.current = null
+    if (screen !== 'game' && audioRef.current) {
+      audioRef.current.pause()
     }
   }, [screen, startLofiMusic])
 
@@ -3229,8 +3180,9 @@ export default function GamePage() {
                 onClick={() => {
                   const next = !musicMuted
                   setMusicMuted(next)
-                  if (!next) {
-                    startLofiMusic()
+                  if (audioRef.current) {
+                    if (!next) audioRef.current.play().catch(() => {})
+                    else audioRef.current.pause()
                   }
                 }}
                 className={`text-[10px] mt-0.5 px-1.5 py-0.5 rounded transition-all border ${musicMuted ? 'border-[rgba(200,168,75,0.5)] text-[#c8a84b] opacity-100 animate-pulse' : 'border-transparent text-[#5a6a3a] opacity-60 hover:opacity-100'}`}
