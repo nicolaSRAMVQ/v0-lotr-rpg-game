@@ -345,7 +345,138 @@ export default function GamePage() {
   const [invPanelOpen, setInvPanelOpen] = useState(false)
   const [shopPanelOpen, setShopPanelOpen] = useState(false)
   const [musicMuted, setMusicMuted] = useState(true)
+  const [sfxEnabled, setSfxEnabled] = useState(true)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+
+  // Sistema de sonidos con Web Audio API (no necesita archivos)
+  // Generador de música lofi ambiental con Web Audio
+  const startLofiMusic = useCallback(() => {
+    if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume()
+    const ctx = audioCtxRef.current
+    if (!ctx) return
+    
+    const createNote = (freq: number, time: number, duration: number, vel: number = 0.15) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      const filter = ctx.createBiquadFilter()
+      
+      osc.connect(filter)
+      filter.connect(gain)
+      gain.connect(ctx.destination)
+      
+      osc.frequency.value = freq
+      osc.type = 'sine'
+      filter.type = 'lowpass'
+      filter.frequency.value = 600
+      
+      gain.gain.setValueAtTime(0, time)
+      gain.gain.linearRampToValueAtTime(vel, time + 0.05)
+      gain.gain.linearRampToValueAtTime(vel * 0.7, time + duration * 0.7)
+      gain.gain.linearRampToValueAtTime(0, time + duration)
+      
+      osc.start(time)
+      osc.stop(time + duration)
+    }
+    
+    // Acordes lofi: Am, F, C, G en loop
+    const chords = [
+      [220, 330, 440],   // Am
+      [174, 261, 349],   // F
+      [262, 330, 523],   // C
+      [196, 294, 392]    // G
+    ]
+    
+    let noteIdx = 0
+    const scheduleLoop = () => {
+      if (musicMuted || !audioRef.current || !audioRef.current.playing) return
+      
+      const now = ctx.currentTime
+      const chord = chords[noteIdx % chords.length]
+      const duration = 2
+      
+      for (const freq of chord) {
+        createNote(freq, now, duration, 0.12)
+      }
+      
+      noteIdx++
+      setTimeout(scheduleLoop, duration * 1000)
+    }
+    
+    audioRef.current = { playing: true, schedule: scheduleLoop } as any
+    scheduleLoop()
+  }, [musicMuted])
+
+  const playSfx = useCallback((type: 'click' | 'hit' | 'pickup' | 'damage' | 'death' | 'heal') => {
+    if (!sfxEnabled) return
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      }
+      const ctx = audioCtxRef.current
+      if (ctx.state === 'suspended') ctx.resume()
+      
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      
+      const now = ctx.currentTime
+      
+      if (type === 'click') {
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(800, now)
+        osc.frequency.exponentialRampToValueAtTime(400, now + 0.1)
+        gain.gain.setValueAtTime(0.3, now)
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1)
+        osc.start(now)
+        osc.stop(now + 0.1)
+      } else if (type === 'hit') {
+        osc.type = 'sawtooth'
+        osc.frequency.setValueAtTime(200, now)
+        osc.frequency.exponentialRampToValueAtTime(80, now + 0.15)
+        gain.gain.setValueAtTime(0.4, now)
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15)
+        osc.start(now)
+        osc.stop(now + 0.15)
+      } else if (type === 'pickup') {
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(400, now)
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.1)
+        gain.gain.setValueAtTime(0.25, now)
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15)
+        osc.start(now)
+        osc.stop(now + 0.15)
+      } else if (type === 'damage') {
+        osc.type = 'square'
+        osc.frequency.setValueAtTime(150, now)
+        osc.frequency.exponentialRampToValueAtTime(50, now + 0.2)
+        gain.gain.setValueAtTime(0.35, now)
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2)
+        osc.start(now)
+        osc.stop(now + 0.2)
+      } else if (type === 'death') {
+        osc.type = 'sawtooth'
+        osc.frequency.setValueAtTime(300, now)
+        osc.frequency.exponentialRampToValueAtTime(30, now + 0.5)
+        gain.gain.setValueAtTime(0.4, now)
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5)
+        osc.start(now)
+        osc.stop(now + 0.5)
+      } else if (type === 'heal') {
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(300, now)
+        osc.frequency.exponentialRampToValueAtTime(600, now + 0.1)
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.2)
+        gain.gain.setValueAtTime(0.2, now)
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25)
+        osc.start(now)
+        osc.stop(now + 0.25)
+      }
+    } catch (e) {
+      // Silenciar errores de audio
+    }
+  }, [sfxEnabled])
 
   const log = useCallback((type: string, msg: string) => {
     if (!S.current) return
@@ -898,6 +1029,7 @@ export default function GamePage() {
       p.inv.splice(idx, 1)
       log('s', `${def.icon} ${def.desc.split('.')[0]}. +${healed} HP.`)
       notify(`+${healed} HP`, '#5a8a3a')
+      playSfx('heal')
       return
     }
 
@@ -1036,7 +1168,7 @@ export default function GamePage() {
         return
       }
     }
-  }, [log, notify])
+  }, [log, notify, playSfx])
 
   const useRing = useCallback(() => {
     if (!S.current || !S.current.p) return
@@ -1302,6 +1434,7 @@ export default function GamePage() {
         const dmg = Math.max(1, Math.round(baseDmg * weaponDmgMult))
         naz.hp -= dmg
         naz.invT = 10
+        playSfx('hit')
         S.current.fx.push({
           x: naz.x,
           y: naz.y - 20,
@@ -1395,8 +1528,9 @@ export default function GamePage() {
       notify(`+${ITEMS[nearby.item]?.icon || '?'}`, '#c8a84b')
     }
     S.current.droppedItems.splice(idx, 1)
+    playSfx('pickup')
     forceUpdate(n => n + 1)
-  }, [getNearbyItem, tryInteract, log, notify])
+  }, [getNearbyItem, tryInteract, log, notify, playSfx])
 
   const moveToward = useCallback((entity: { x: number; y: number; dir: Dir }, tx: number, ty: number, spd: number) => {
     const dx = tx - entity.x, dy = ty - entity.y
@@ -1939,6 +2073,7 @@ export default function GamePage() {
         if (pnDist < T * 1.0 && p.invT === 0 && naz.atkT === 0 && p.ringActive === 0) {
           if (!st.heroMode) {
             p.hp -= naz.dmg
+            playSfx('damage')
           }
           p.invT = 60
           naz.atkT = 60
@@ -2928,25 +3063,17 @@ export default function GamePage() {
   }, [advanceDlg, doAttack, closeDlg, tryInteract, useItem])
 
   useEffect(() => {
-    if (screen === 'game' && !audioRef.current) {
-      // Precargar el audio pero no reproducir — esperar click del usuario
-      const audio = new Audio('/music/lotr_lofi.mp3')
-      audio.loop = true
-      audio.volume = 0.8
-      audio.preload = 'auto'
-      console.log('[v0] Audio inicializado:', audio.src)
-      audioRef.current = audio
+    if (screen === 'game' && !audioRef.current?.playing) {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      }
+      startLofiMusic()
     }
-    if (screen !== 'game' && audioRef.current) {
-      const audio = audioRef.current
-      let vol = audio.volume
-      const fadeOut = setInterval(() => {
-        vol = Math.max(0, vol - 0.05)
-        audio.volume = vol
-        if (vol <= 0) { audio.pause(); audioRef.current = null; clearInterval(fadeOut) }
-      }, 60)
+    if (screen !== 'game' && audioRef.current?.playing) {
+      audioRef.current.playing = false
+      audioRef.current = null
     }
-  }, [screen])
+  }, [screen, startLofiMusic])
 
   useEffect(() => {
     const handleResize = () => {
@@ -3102,28 +3229,23 @@ export default function GamePage() {
                 onClick={() => {
                   const next = !musicMuted
                   setMusicMuted(next)
-                  console.log('[v0] Music button clicked, next state:', next)
-                  if (audioRef.current) {
-                    console.log('[v0] Audio exists, current src:', audioRef.current.src)
-                    if (!next) {
-                      console.log('[v0] Attempting to play audio...')
-                      audioRef.current.volume = 0
-                      audioRef.current.play()
-                        .then(() => console.log('[v0] Audio playing successfully'))
-                        .catch((err) => console.log('[v0] Audio play error:', err.message))
-                      let vol = 0
-                      const fi = setInterval(() => { vol = Math.min(0.8, vol + 0.03); if (audioRef.current) audioRef.current.volume = vol; if (vol >= 0.8) clearInterval(fi) }, 60)
-                    } else {
-                      console.log('[v0] Pausing audio')
-                      audioRef.current.pause()
-                    }
-                  } else {
-                    console.log('[v0] ERROR: audioRef.current is null!')
+                  if (!next) {
+                    startLofiMusic()
                   }
                 }}
                 className={`text-[10px] mt-0.5 px-1.5 py-0.5 rounded transition-all border ${musicMuted ? 'border-[rgba(200,168,75,0.5)] text-[#c8a84b] opacity-100 animate-pulse' : 'border-transparent text-[#5a6a3a] opacity-60 hover:opacity-100'}`}
                 title={musicMuted ? 'Activar musica' : 'Silenciar musica'}
               >{musicMuted ? '▶ Musica' : '|| Musica'}</button>
+              <button
+                onClick={() => { playSfx('click'); }}
+                className="text-[10px] mt-0.5 px-1.5 py-0.5 rounded border border-[rgba(90,106,58,0.5)] text-[#5a6a3a] hover:bg-[rgba(90,106,58,0.2)] transition-all"
+                title="Test sonido (click)"
+              >Test SFX</button>
+              <button
+                onClick={() => setSfxEnabled(!sfxEnabled)}
+                className={`text-[10px] mt-0.5 px-1 py-0.5 rounded transition-all ${sfxEnabled ? 'text-[#5a6a3a]' : 'text-[#c83030]'}`}
+                title={sfxEnabled ? 'Desactivar efectos' : 'Activar efectos'}
+              >{sfxEnabled ? '🔊' : '🔈'}</button>
               {S.current.p && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-[#c8a84b] text-[10px] font-bold">Nv.{S.current.p.level}</span>
