@@ -344,6 +344,8 @@ export default function GamePage() {
   const [isCompact, setIsCompact] = useState(false)
   const [invPanelOpen, setInvPanelOpen] = useState(false)
   const [shopPanelOpen, setShopPanelOpen] = useState(false)
+  const [musicMuted, setMusicMuted] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const log = useCallback((type: string, msg: string) => {
     if (!S.current) return
@@ -2926,6 +2928,33 @@ export default function GamePage() {
   }, [advanceDlg, doAttack, closeDlg, tryInteract, useItem])
 
   useEffect(() => {
+    if (screen === 'game' && !audioRef.current) {
+      const audio = new Audio('/music/lotr_lofi.mp3')
+      audio.loop = true
+      audio.volume = 0
+      audio.play().catch(() => {})
+      audioRef.current = audio
+      // Fade in de 3 segundos
+      let vol = 0
+      const fadeIn = setInterval(() => {
+        vol = Math.min(1, vol + 0.02)
+        if (audioRef.current) audioRef.current.volume = vol
+        if (vol >= 1) clearInterval(fadeIn)
+      }, 60)
+    }
+    if (screen !== 'game' && audioRef.current) {
+      // Fade out al salir del juego
+      const audio = audioRef.current
+      let vol = audio.volume
+      const fadeOut = setInterval(() => {
+        vol = Math.max(0, vol - 0.05)
+        audio.volume = vol
+        if (vol <= 0) { audio.pause(); audioRef.current = null; clearInterval(fadeOut) }
+      }, 60)
+    }
+  }, [screen])
+
+  useEffect(() => {
     const handleResize = () => {
       if (canvasRef.current) {
         canvasRef.current.width = window.innerWidth
@@ -3061,6 +3090,12 @@ export default function GamePage() {
               <div className="text-[#c8a84b] text-xs font-medium">
                 💰 {S.current.p.gold} MC
               </div>
+              <button
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); const next = !musicMuted; setMusicMuted(next); if (audioRef.current) audioRef.current.volume = next ? 0 : 1 }}
+                onClick={() => { const next = !musicMuted; setMusicMuted(next); if (audioRef.current) audioRef.current.volume = next ? 0 : 1 }}
+                className="text-[10px] mt-0.5 opacity-60 hover:opacity-100 transition-opacity"
+                title={musicMuted ? 'Activar música' : 'Silenciar música'}
+              >{musicMuted ? '🔇' : '🎵'}</button>
               {S.current.p && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-[#c8a84b] text-[10px] font-bold">Nv.{S.current.p.level}</span>
@@ -3128,8 +3163,8 @@ export default function GamePage() {
               value={S.current.termInput}
               onChange={handleTermInput}
               onKeyDown={handleTermKeyDown}
-              onFocus={() => { if (S.current) S.current.gamePaused = true }}
-              onBlur={() => { if (S.current) S.current.gamePaused = false }}
+              onFocus={() => { if (S.current) S.current.gamePaused = true; if (audioRef.current) audioRef.current.volume = musicMuted ? 0 : 0.3 }}
+              onBlur={() => { if (S.current) S.current.gamePaused = false; if (audioRef.current) audioRef.current.volume = musicMuted ? 0 : 1.0 }}
               placeholder="/mods o escribe aquí..."
               className="flex-1 bg-transparent text-[#8aaa6e] outline-none placeholder:text-[#3a4a2a]"
               style={{ fontSize: '16px' }}
