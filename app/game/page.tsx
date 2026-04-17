@@ -406,6 +406,8 @@ export default function GamePage() {
     audioRef.current = { playing: true, schedule: scheduleLoop } as any
     scheduleLoop()
   }, [musicMuted])
+
+  const playSfx = useCallback((type: 'click' | 'hit' | 'pickup' | 'damage' | 'death' | 'heal') => {
     if (!sfxEnabled) return
     try {
       if (!audioCtxRef.current) {
