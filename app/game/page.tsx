@@ -10,6 +10,71 @@ const T = 32
 const WW = 100
 const WH = 80
 
+// ============ REGIONES ============
+type RegionId = 'comarca' | 'bosque' | 'rivendell'
+
+interface RegionDef {
+  id: RegionId
+  name: string
+  subtitle: string
+  // Paleta base del suelo y ambiente
+  ground: string
+  groundAlt: string
+  pathColor: string
+  fogColor: string      // overlay atmosférico (rgba)
+  ambientTint: string   // tinte general (rgba)
+  music: string         // descripción de ambiente
+  // Conexión con la siguiente región (borde este)
+  next: RegionId | null
+  prev: RegionId | null
+  enemies: ('warg' | 'orc' | 'spider' | 'wight' | 'nazgul')[]
+}
+
+const REGIONS: Record<RegionId, RegionDef> = {
+  comarca: {
+    id: 'comarca',
+    name: 'La Comarca',
+    subtitle: 'Hobbiton y sus verdes colinas',
+    ground: '#4a6e2a',
+    groundAlt: '#436526',
+    pathColor: '#a8915a',
+    fogColor: 'rgba(180,200,120,0.0)',
+    ambientTint: 'rgba(255,240,180,0.05)',
+    music: 'pacífica',
+    next: 'bosque',
+    prev: null,
+    enemies: ['nazgul'],
+  },
+  bosque: {
+    id: 'bosque',
+    name: 'El Bosque Cerrado',
+    subtitle: 'Espesura oscura camino al este',
+    ground: '#2a3a1e',
+    groundAlt: '#24331a',
+    pathColor: '#5a4a32',
+    fogColor: 'rgba(20,30,18,0.28)',
+    ambientTint: 'rgba(30,50,30,0.18)',
+    music: 'inquietante',
+    next: 'rivendell',
+    prev: 'comarca',
+    enemies: ['spider', 'orc', 'warg', 'wight'],
+  },
+  rivendell: {
+    id: 'rivendell',
+    name: 'Rivendel',
+    subtitle: 'El Último Hogar Acogedor',
+    ground: '#3a5a3e',
+    groundAlt: '#34543a',
+    pathColor: '#b8a878',
+    fogColor: 'rgba(180,210,230,0.10)',
+    ambientTint: 'rgba(200,220,255,0.08)',
+    music: 'élfica serena',
+    next: null,
+    prev: 'bosque',
+    enemies: [],
+  },
+}
+
 // ============ CHARACTERS ============
 const CHARS: Record<string, { name: string; spd: number; maxhp: number; dmg: number; range: number; startItems: string[] }> = {
   frodo: { name: 'FRODO', spd: 2.8, maxhp: 6, dmg: 6, range: 2.4, startItems: ['anillo', 'lembas'] },
@@ -78,10 +143,12 @@ const VILLAGER_DEFS = [
 ]
 
 // ============ HOBBIT HOLES ============
+// doorColor/moundTone dan identidad a cada agujero-hobbit. size escala la estructura pseudo-3D.
+const HOLE_DOOR_COLORS = ['#3a6e2a', '#8a3020', '#2a4a8a', '#b5912a', '#6a2a7a', '#2a7a6a', '#a04820', '#406030']
 const HOLES = [
-  { tx: 15, ty: 22 }, { tx: 25, ty: 18 }, { tx: 38, ty: 24 }, { tx: 50, ty: 20 },
-  { tx: 62, ty: 22 }, { tx: 72, ty: 18 }, { tx: 18, ty: 55 }, { tx: 30, ty: 52 },
-  { tx: 45, ty: 58 }, { tx: 60, ty: 54 }, { tx: 75, ty: 56 }, { tx: 82, ty: 22 },
+  { tx: 15, ty: 22, size: 1.0 }, { tx: 25, ty: 18, size: 1.15 }, { tx: 38, ty: 24, size: 0.95 }, { tx: 50, ty: 20, size: 1.2 },
+  { tx: 62, ty: 22, size: 1.0 }, { tx: 72, ty: 18, size: 1.1 }, { tx: 18, ty: 55, size: 1.05 }, { tx: 30, ty: 52, size: 0.95 },
+  { tx: 45, ty: 58, size: 1.15 }, { tx: 60, ty: 54, size: 1.0 }, { tx: 75, ty: 56, size: 1.1 }, { tx: 82, ty: 22, size: 1.0 },
 ]
 
 // ============ MOD COMMANDS ============
@@ -103,6 +170,8 @@ const MOD_COMMANDS = [
 
 // ============ TYPES ============
 type TileType = 'grass' | 'path' | 'tree' | 'flower' | 'yard' | 'door' | 'mill'
+  | 'darktree' | 'water' | 'bridge' | 'rock' | 'fog' | 'autumntree' | 'pine'
+  | 'cobble' | 'rivwater' | 'arch' | 'leaves' | 'cliff' | 'portal'
 type Tile = { type: TileType; variant?: number }
 type Dir = 'down' | 'up' | 'left' | 'right'
 type GameMode = 'exploration' | 'horde'
@@ -134,9 +203,44 @@ interface Villager {
   screamed: boolean
   homeX: number
   homeY: number
+  // — Comarca viva —
+  role: 'gatherer' | 'builder' | 'artisan' | 'wanderer'
+  job: 'idle' | 'gather' | 'haul' | 'build' | 'craft'
+  jobTimer: number
+  carrying: number          // recurso que lleva encima
+  targetX: number           // destino de trabajo
+  targetY: number
+}
+
+// Estado de la Comarca: prosperidad sostenible, recursos, cultura
+interface ShireState {
+  prosperity: number        // 0–100, con tope sostenible
+  prosperityCap: number     // techo móvil; pasarlo daña el "alma"
+  wood: number
+  harvest: number
+  gardens: { x: number; y: number; growth: number }[]
+  maxGardens: number        // límite anti-ciudad
+  newHoles: { x: number; y: number; build: number; size: number }[]
+  maxHoles: number
+  festival: { active: boolean; timer: number; name: string }
+  fireworks: Firework[]
+  cultureTimer: number
+  lastMilestone: number
+}
+
+interface Firework {
+  x: number
+  y: number
+  vy: number
+  life: number
+  maxLife: number
+  exploded: boolean
+  color: string
+  sparks: { x: number; y: number; vx: number; vy: number; life: number }[]
 }
 
 interface Nazgul {
+  kind: EnemyKind
   x: number
   y: number
   hp: number
@@ -152,6 +256,20 @@ interface Nazgul {
   invT: number
   deathFrame: number
   waveNum: number
+  webSlow?: number
+}
+
+type EnemyKind = 'nazgul' | 'warg' | 'orc' | 'spider' | 'wight'
+
+// Definición visual/comportamiento de cada criatura del bestiario
+const ENEMY_DEFS: Record<EnemyKind, {
+  name: string; color: string; accent: string; hp: number; spd: number; dmg: number; size: number
+}> = {
+  nazgul: { name: 'Nazgûl', color: '#1a1a1f', accent: '#6a0010', hp: 5, spd: 1.0, dmg: 1, size: 1.0 },
+  warg:   { name: 'Warg',   color: '#3a3028', accent: '#8a6a3a', hp: 4, spd: 1.7, dmg: 1, size: 0.95 },
+  orc:    { name: 'Orco',   color: '#3a4a2a', accent: '#7a3020', hp: 6, spd: 0.85, dmg: 2, size: 1.0 },
+  spider: { name: 'Araña',  color: '#1a1014', accent: '#5a1030', hp: 4, spd: 1.2, dmg: 1, size: 1.1 },
+  wight:  { name: 'Tumulario', color: '#2a3038', accent: '#aaccdd', hp: 7, spd: 0.6, dmg: 2, size: 1.0 },
 }
 
 interface HeroCompanion {
@@ -218,6 +336,7 @@ interface Player {
   weaponSlot: 'main' | 'secondary'
   spellCooldowns: Record<string, number>
   activeEffects: { effect: string; duration: number }[]
+  webbed: number
 }
 
 interface Merchant {
@@ -291,9 +410,12 @@ interface GameState {
   gamePaused: boolean
   merchants: Merchant[]
   activeMerchant: string | null
+  shire: ShireState
+  region: RegionId
+  regionTransition: { active: boolean; to: RegionId | null; progress: number; phase: 'out' | 'in' }
 }
 
-const SOLID = new Set<TileType>(['tree', 'mill'])
+const SOLID = new Set<TileType>(['tree', 'mill', 'darktree', 'pine', 'water', 'rock', 'rivwater', 'cliff', 'arch'])
 
 const SHOPS: Record<string, { name: string; icon: string; color: string; items: { id: string; name: string; icon: string; price: number; type: 'weapon'|'armor'|'food'|'potion' }[] }> = {
   herrero: {
@@ -362,6 +484,13 @@ function GameInner() {
   const [sfxEnabled, setSfxEnabled] = useState(true)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const minimapRef = useRef<HTMLCanvasElement>(null)
+  const S = useRef<GameState | null>(null)
+  const animRef = useRef<number>(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const logRef = useRef<HTMLDivElement>(null)
 
   // Detectar parámetro char del URL (viene del landing)
   useEffect(() => {
@@ -472,8 +601,11 @@ function GameInner() {
     S.current.fade = { text, color, life: 90 }
   }, [])
 
-  const buildMap = useCallback(() => {
+  const buildMap = useCallback((region: RegionId = 'comarca') => {
     const map: Tile[][] = []
+
+    if (region === 'bosque') return buildForestMap()
+    if (region === 'rivendell') return buildRivendellMap()
     for (let y = 0; y < WH; y++) {
       map[y] = []
       for (let x = 0; x < WW; x++) {
@@ -529,6 +661,119 @@ function GameInner() {
       }
     }
 
+    // Portal de salida al este (camino al Bosque Cerrado)
+    for (let dy = 37; dy <= 40; dy++) {
+      for (let dx = WW - 2; dx < WW; dx++) {
+        if (dy >= 0 && dy < WH && dx >= 0 && dx < WW) map[dy][dx] = { type: 'portal' }
+      }
+    }
+
+    return map
+  }, [])
+
+  // ============ GENERADOR: BOSQUE CERRADO ============
+  const buildForestMap = useCallback((): Tile[][] => {
+    const map: Tile[][] = []
+    for (let y = 0; y < WH; y++) {
+      map[y] = []
+      for (let x = 0; x < WW; x++) {
+        const variant = (x + y) % 2
+        let type: TileType = 'grass'
+        // Sendero serpenteante este-oeste
+        const winding = 38 + Math.round(Math.sin(x * 0.12) * 5)
+        if (y >= winding - 1 && y <= winding + 1) type = 'path'
+        if (type === 'grass') {
+          const r = Math.random()
+          if (r < 0.30) type = 'darktree'        // espesura densa
+          else if (r < 0.34) type = 'pine'
+          else if (r < 0.38) type = 'autumntree'
+          else if (r < 0.40) type = 'rock'
+          else if (r < 0.42) type = 'leaves'
+        }
+        map[y][x] = { type, variant }
+      }
+    }
+    // Claros (zonas abiertas) para combate y respiro
+    const clearings = [{ x: 25, y: 38 }, { x: 55, y: 38 }, { x: 80, y: 38 }]
+    for (const c of clearings) {
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const nx = c.x + dx, ny = c.y + dy
+          if (nx >= 0 && nx < WW && ny >= 0 && ny < WH && dx * dx + dy * dy <= 16) {
+            if (map[ny][nx].type !== 'path') map[ny][nx] = { type: 'grass', variant: (nx + ny) % 2 }
+          }
+        }
+      }
+    }
+    // Arroyo con puente
+    for (let y = 0; y < WH; y++) {
+      if (Math.abs(y - 38) > 1) {
+        map[y][64] = { type: 'water' }
+        map[y][65] = { type: 'water' }
+      }
+    }
+    map[38][64] = { type: 'bridge' }; map[38][65] = { type: 'bridge' }
+    map[39][64] = { type: 'bridge' }; map[39][65] = { type: 'bridge' }
+    // Portales: regreso oeste (Comarca) y salida este (Rivendell)
+    for (let dy = 37; dy <= 40; dy++) {
+      map[dy][0] = { type: 'portal' }; map[dy][1] = { type: 'portal' }
+      map[dy][WW - 1] = { type: 'portal' }; map[dy][WW - 2] = { type: 'portal' }
+    }
+    // Zonas de entrada despejadas junto a cada portal (evita spawn dentro de la espesura)
+    for (let dy = 36; dy <= 41; dy++) {
+      for (let dx = 2; dx <= 7; dx++) map[dy][dx] = { type: 'path' }
+      for (let dx = WW - 8; dx <= WW - 3; dx++) map[dy][dx] = { type: 'path' }
+    }
+    return map
+  }, [])
+
+  // ============ GENERADOR: RIVENDEL ============
+  const buildRivendellMap = useCallback((): Tile[][] => {
+    const map: Tile[][] = []
+    for (let y = 0; y < WH; y++) {
+      map[y] = []
+      for (let x = 0; x < WW; x++) {
+        const variant = (x + y) % 2
+        let type: TileType = 'grass'
+        if (type === 'grass') {
+          const r = Math.random()
+          if (r < 0.04) type = 'autumntree'
+          else if (r < 0.06) type = 'flower'
+          else if (r < 0.075) type = 'pine'
+        }
+        map[y][x] = { type, variant }
+      }
+    }
+    // Cascadas y río de Rivendel (bordes norte/sur)
+    for (let x = 0; x < WW; x++) {
+      for (let y = 0; y < 8; y++) map[y][x] = { type: 'rivwater', variant: 0 }
+      for (let y = WH - 8; y < WH; y++) map[y][x] = { type: 'rivwater', variant: 0 }
+    }
+    // Acantilados que enmarcan el valle
+    for (let x = 0; x < WW; x++) {
+      map[8][x] = { type: 'cliff' }
+      map[WH - 9][x] = { type: 'cliff' }
+    }
+    // Caminos de adoquín élfico
+    for (let x = 2; x < WW - 2; x++) { map[38][x] = { type: 'cobble' }; map[39][x] = { type: 'cobble' } }
+    for (let y = 12; y < WH - 12; y++) { map[y][50] = { type: 'cobble' } }
+    // La Última Casa (pabellón élfico central) con arcos
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -5; dx <= 5; dx++) {
+        const nx = 50 + dx, ny = 30 + dy
+        if (nx >= 0 && nx < WW && ny >= 0 && ny < WH) {
+          map[ny][nx] = { type: (Math.abs(dx) === 5 || Math.abs(dy) === 3) ? 'arch' : 'cobble' }
+        }
+      }
+    }
+    // Portal de regreso oeste (al Bosque)
+    for (let dy = 37; dy <= 40; dy++) {
+      map[dy][0] = { type: 'portal' }; map[dy][1] = { type: 'portal' }
+    }
+    // Zona de entrada despejada junto al portal
+    for (let dy = 36; dy <= 41; dy++) {
+      for (let dx = 2; dx <= 7; dx++) map[dy][dx] = { type: 'cobble' }
+    }
     return map
   }, [])
 
@@ -540,6 +785,7 @@ function GameInner() {
   }, [])
 
   const spawnVillagers = useCallback((): Villager[] => {
+    const ROLES: Villager['role'][] = ['gatherer', 'builder', 'artisan', 'wanderer']
     return VILLAGER_DEFS.map((def, i) => {
       const hole = HOLES[i]
       const x = hole.tx * T, y = hole.ty * T
@@ -562,22 +808,30 @@ function GameInner() {
         screamed: false,
         homeX: x,
         homeY: y,
+        role: ROLES[i % ROLES.length],
+        job: 'idle' as const,
+        jobTimer: 60 + i * 20,
+        carrying: 0,
+        targetX: x,
+        targetY: y,
       }
     })
   }, [])
 
-  const createNazgul = useCallback((waveNum: number = 1): Nazgul => {
-    const baseSpd = 0.7
-    const baseHp = 20
+  const createNazgul = useCallback((waveNum: number = 1, kind: EnemyKind = 'nazgul'): Nazgul => {
+    const def = ENEMY_DEFS[kind]
+    const baseSpd = 0.7 * def.spd
+    const baseHp = 20 * (def.hp / 5)   // escala relativa al Nazgûl base
     const spdBonus = (waveNum - 1) * 0.1
     const hpBonus = (waveNum - 1) * 2
     return {
+      kind,
       x: (WW - 3) * T,
       y: 38 * T,
       hp: baseHp + hpBonus,
       maxhp: baseHp + hpBonus,
       spd: baseSpd + spdBonus,
-      dmg: 4,
+      dmg: def.dmg * 4,
       state: 'hunt',
       dir: 'left',
       frame: 0,
@@ -587,6 +841,7 @@ function GameInner() {
       deathFrame: 0,
       waveNum,
       confusedTimer: 0,
+      webSlow: 0,
     }
   }, [])
 
@@ -679,6 +934,7 @@ function GameInner() {
         weaponSlot: 'main',
         spellCooldowns: {},
         activeEffects: [],
+      webbed: 0,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -717,6 +973,22 @@ function GameInner() {
         { id: 'boticario',  x: 55 * T, y: 44 * T, dir: 'down', frame: 0 },
       ],
       activeMerchant: null,
+      shire: {
+        prosperity: 35,
+        prosperityCap: 60,
+        wood: 0,
+        harvest: 0,
+        gardens: [],
+        maxGardens: 8,
+        newHoles: [],
+        maxHoles: 4,
+        festival: { active: false, timer: 0, name: '' },
+        fireworks: [],
+        cultureTimer: 0,
+        lastMilestone: 0,
+      },
+      region: 'comarca',
+      regionTransition: { active: false, to: null, progress: 0, phase: 'out' },
     }
 
     if (mode === 'exploration') {
@@ -816,15 +1088,18 @@ function GameInner() {
       log('s', 'Modo Exploración activado.')
       notify('EXPLORACIÓN', '#5a8a3a')
     } else if (cmd.startsWith('/nazgul ')) {
-      const n = parseInt(cmd.replace('/nazgul ', '')) || 1
+      const args = cmd.replace('/nazgul ', '').trim().split(/\s+/)
+      const n = parseInt(args[0]) || 1
+      const kindArg = (args[1] || 'nazgul') as EnemyKind
+      const kind: EnemyKind = ENEMY_DEFS[kindArg] ? kindArg : 'nazgul'
       for (let i = 0; i < n; i++) {
-        const naz = createNazgul(st.wave + 1)
+        const naz = createNazgul(st.wave + 1, kind)
         naz.x = (WW - 3 - i * 2) * T
         st.nazgulList.push(naz)
         if (!st.nazgul) st.nazgul = naz
       }
-      log('d', `¡${n} NAZGÛL INVOCADOS!`)
-      notify('⚠ NAZGÛL', '#e24b4a')
+      log('d', `¡${n} ${ENEMY_DEFS[kind].name.toUpperCase()} INVOCADOS!`)
+      notify(`⚠ ${ENEMY_DEFS[kind].name}`, '#e24b4a')
     } else if (cmd.startsWith('/invocar ')) {
       const name = cmd.replace('/invocar ', '')
       log('s', `Invocando a ${name}... (próximamente)`)
@@ -1536,6 +1811,47 @@ function GameInner() {
     const p = st.p!
     st.frameCount++
 
+    // ============ TRANSICIÓN ENTRE REGIONES ============
+    if (st.regionTransition.active) {
+      const rt = st.regionTransition
+      if (rt.phase === 'out') {
+        rt.progress += 0.04
+        if (rt.progress >= 1 && rt.to) {
+          // Cambiar región: regenerar mapa y reposicionar
+          const dest = rt.to
+          const goingForward = REGIONS[st.region].next === dest
+          st.region = dest
+          st.map = buildMap(dest)
+          // Reposicionar al jugador al borde opuesto
+          if (goingForward) {
+            p.x = 3 * T; p.y = 38 * T   // entra por el oeste
+          } else {
+            p.x = (WW - 4) * T; p.y = 38 * T  // vuelve por el este
+          }
+          // Resetear cámara
+          const cv = canvasRef.current
+          if (cv) {
+            st.cam.x = Math.max(0, Math.min(WW * T - cv.width, p.x - cv.width / 2))
+            st.cam.y = Math.max(0, Math.min(WH * T - cv.height, p.y - cv.height / 2))
+          }
+          // Limpiar amenaza Nazgûl al cambiar de región (la Comarca sigue su curso)
+          st.nazgul = null
+          rt.phase = 'in'
+          rt.progress = 1
+          const rd = REGIONS[dest]
+          log('s', `Has llegado a ${rd.name} — ${rd.subtitle}.`)
+          notify(rd.name, '#e2c84a')
+        }
+        return  // congelar gameplay durante el fundido de salida
+      } else {
+        rt.progress -= 0.04
+        if (rt.progress <= 0) {
+          st.regionTransition = { active: false, to: null, progress: 0, phase: 'out' }
+        }
+        return  // congelar durante fundido de entrada
+      }
+    }
+
     if (st.screenFlash > 0) st.screenFlash--
 
     if (p.invT > 0) p.invT--
@@ -1590,14 +1906,18 @@ function GameInner() {
         if (st.waveDelay === 0 && st.wave < 10) {
           st.wave++
           const count = st.wave
+          const pool = REGIONS[st.region].enemies
           for (let i = 0; i < count; i++) {
-            const newNaz = createNazgul(st.wave)
+            // Elegir tipo de enemigo según el bestiario de la región
+            const kind = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'nazgul'
+            const newNaz = createNazgul(st.wave, kind)
             newNaz.x = (WW - 3 - i * 3) * T
             newNaz.y = (36 + (i % 3) * 2) * T
             st.nazgulList.push(newNaz)
             if (!st.nazgul) st.nazgul = newNaz
           }
-          log('d', `¡OLEADA ${st.wave} — ${count} NAZGÛL!`)
+          const regionEnemyName = pool.length === 1 ? ENEMY_DEFS[pool[0]].name.toUpperCase() : 'ENEMIGOS'
+          log('d', `¡OLEADA ${st.wave} — ${count} ${regionEnemyName}!`)
           notify(`⚠ OLEADA ${st.wave} ×${count}`, '#e24b4a')
         }
       }
@@ -1621,8 +1941,11 @@ function GameInner() {
       const mag = Math.sqrt(dx * dx + dy * dy)
       dx /= mag
       dy /= mag
-      const nx = p.x + dx * p.spd
-      const ny = p.y + dy * p.spd
+      // Enredado por telaraña de araña: media velocidad
+      if (p.webbed && p.webbed > 0) p.webbed--
+      const effSpd = (p.webbed && p.webbed > 0) ? p.spd * 0.45 : p.spd
+      const nx = p.x + dx * effSpd
+      const ny = p.y + dy * effSpd
       if (!isSolid(nx, p.y)) p.x = nx
       if (!isSolid(p.x, ny)) p.y = ny
       p.frame++
@@ -1630,6 +1953,20 @@ function GameInner() {
         p.dir = dx > 0 ? 'right' : 'left'
       } else {
         p.dir = dy > 0 ? 'down' : 'up'
+      }
+
+      // Detección de portal de transición entre regiones
+      if (!st.regionTransition.active) {
+        const ptx = Math.floor(p.x / T), pty = Math.floor(p.y / T)
+        if (ptx >= 0 && ptx < WW && pty >= 0 && pty < WH && st.map[pty][ptx].type === 'portal') {
+          const def = REGIONS[st.region]
+          // Portal al este = siguiente región; al oeste = anterior
+          const goingEast = ptx >= WW - 2
+          const dest = goingEast ? def.next : def.prev
+          if (dest) {
+            st.regionTransition = { active: true, to: dest, progress: 0, phase: 'out' }
+          }
+        }
       }
     }
 
@@ -1684,15 +2021,161 @@ function GameInner() {
           }
         }
       } else if (v.state === 'walk') {
-        v.patrolTimer--
-        if (v.patrolTimer <= 0) {
-          v.patrolIdx = (v.patrolIdx + 1) % v.patrol.length
-          v.patrolTimer = 80
+        // — COMARCA VIVA: trabajo según rol cuando no hay amenaza —
+        const sh = st.shire
+        const nazThreat = naz && naz.hp > 0 && naz.state !== 'dying'
+        if (!nazThreat && !sh.festival.active && v.role !== 'wanderer') {
+          v.jobTimer--
+          if (v.job === 'idle' && v.jobTimer <= 0) {
+            // Asignar nueva tarea según rol
+            if (v.role === 'gatherer') {
+              // Ir a un árbol/cosecha cercano
+              v.job = Math.random() < 0.5 ? 'gather' : 'haul'
+              v.targetX = v.homeX + (Math.random() - 0.5) * T * 10
+              v.targetY = v.homeY + (Math.random() - 0.5) * T * 8
+              v.jobTimer = 120
+            } else if (v.role === 'builder') {
+              v.job = 'build'
+              v.targetX = v.homeX + (Math.random() - 0.5) * T * 6
+              v.targetY = v.homeY + T * 2 + Math.random() * T * 3
+              v.jobTimer = 160
+            } else if (v.role === 'artisan') {
+              v.job = 'craft'
+              v.targetX = v.homeX
+              v.targetY = v.homeY
+              v.jobTimer = 180
+            }
+          } else if (v.job !== 'idle') {
+            const arrivedJob = moveToward(v, v.targetX, v.targetY, 0.45)
+            if (!arrivedJob) v.frame++
+            if (v.jobTimer <= 0 || arrivedJob) {
+              // Completar tarea -> aportar a la Comarca (sostenible)
+              if (v.job === 'gather') { sh.wood += 1; v.carrying = 1 }
+              else if (v.job === 'haul') { sh.harvest += 1; v.carrying = 1 }
+              else if (v.job === 'build') {
+                // Construir jardín si hay recursos y no se superó el tope
+                if (sh.wood >= 3 && sh.gardens.length < sh.maxGardens) {
+                  sh.wood -= 3
+                  sh.gardens.push({ x: v.targetX, y: v.targetY, growth: 0 })
+                  if (sh.prosperity < sh.prosperityCap) sh.prosperity = Math.min(sh.prosperityCap, sh.prosperity + 2)
+                }
+              } else if (v.job === 'craft') {
+                // Artesano produce un objeto coleccionable de vez en cuando
+                if (sh.harvest >= 2 && Math.random() < 0.5) {
+                  sh.harvest -= 2
+                  const crafted = ['lembas', 'manzana', 'jarron_miel'][Math.floor(Math.random() * 3)]
+                  st.droppedItems.push({ id: crafted, x: v.homeX + (Math.random()-0.5)*T, y: v.homeY + T, frame: 0 } as DroppedItem)
+                  if (sh.prosperity < sh.prosperityCap) sh.prosperity = Math.min(sh.prosperityCap, sh.prosperity + 1)
+                }
+              }
+              v.job = 'idle'
+              v.jobTimer = 120 + Math.random() * 120
+              v.carrying = 0
+            }
+          }
+        } else {
+          // Patrulla normal (festival, amenaza o wanderer)
+          v.patrolTimer--
+          if (v.patrolTimer <= 0) {
+            v.patrolIdx = (v.patrolIdx + 1) % v.patrol.length
+            v.patrolTimer = 80
+          }
+          const target = v.patrol[v.patrolIdx]
+          const arrived = moveToward(v, target.x, target.y, sh.festival.active ? 0.7 : 0.5)
+          if (!arrived) v.frame++
         }
-        const target = v.patrol[v.patrolIdx]
-        const arrived = moveToward(v, target.x, target.y, 0.5)
-        if (!arrived) v.frame++
       }
+    }
+
+    // ============ SIMULACIÓN GLOBAL DE LA COMARCA ============
+    {
+      const sh = st.shire
+      // Crecimiento de jardines
+      for (const g of sh.gardens) {
+        if (g.growth < 100) g.growth = Math.min(100, g.growth + 0.15)
+      }
+      // El tope de prosperidad sube lentamente con jardines maduros (desarrollo sostenible)
+      const matureGardens = sh.gardens.filter(g => g.growth >= 100).length
+      const targetCap = Math.min(100, 60 + matureGardens * 4 + sh.newHoles.filter(h => h.build >= 100).length * 5)
+      sh.prosperityCap += (targetCap - sh.prosperityCap) * 0.01
+      // La prosperidad tiende hacia su tope (cultura próspera pero NO se urbaniza)
+      if (sh.prosperity < sh.prosperityCap) {
+        sh.prosperity = Math.min(sh.prosperityCap, sh.prosperity + 0.01)
+      } else if (sh.prosperity > sh.prosperityCap + 2) {
+        // Pasarse del tope sostenible erosiona el "alma" de la Comarca
+        sh.prosperity -= 0.02
+      }
+
+      // Construcción de nuevos agujeros-hobbit cuando hay madera y prosperidad alta
+      if (sh.wood >= 8 && sh.prosperity > 55 && sh.newHoles.length < sh.maxHoles && st.frameCount % 600 === 0) {
+        sh.wood -= 8
+        const baseHole = HOLES[Math.floor(Math.random() * HOLES.length)]
+        sh.newHoles.push({
+          x: (baseHole.tx + (Math.random() < 0.5 ? -3 : 3)) * T,
+          y: (baseHole.ty + 3) * T,
+          build: 0,
+          size: 0.8 + Math.random() * 0.25,
+        })
+        log('s', 'Los hobbits comienzan a cavar un nuevo agujero.')
+      }
+      for (const nh of sh.newHoles) {
+        if (nh.build < 100) nh.build = Math.min(100, nh.build + 0.08)
+      }
+
+      // — FESTIVALES CULTURALES —
+      sh.cultureTimer++
+      // Hito de prosperidad dispara una fiesta con fuegos artificiales de Gandalf
+      const milestone = Math.floor(sh.prosperity / 25)
+      if (milestone > sh.lastMilestone && !sh.festival.active) {
+        sh.lastMilestone = milestone
+        const names = ['Fiesta de la Cosecha', 'Cumpleaños de Bilbo', 'Festín de Mediodía', 'Gran Celebración']
+        sh.festival = { active: true, timer: 600, name: names[Math.min(milestone - 1, names.length - 1)] }
+        log('s', `¡${sh.festival.name}! La Comarca celebra su prosperidad.`)
+        notify(sh.festival.name, '#ffd24a')
+      }
+      if (sh.festival.active) {
+        sh.festival.timer--
+        // Lanzar fuegos artificiales periódicamente durante la fiesta
+        if (sh.festival.timer % 40 === 0 && sh.fireworks.length < 12) {
+          const fwColors = ['#ff5a5a', '#5aff8a', '#5a9aff', '#ffd24a', '#ff5aff']
+          sh.fireworks.push({
+            x: (40 + Math.random() * 20) * T,
+            y: 30 * T,
+            vy: -3.2 - Math.random() * 1.5,
+            life: 0, maxLife: 60,
+            exploded: false,
+            color: fwColors[Math.floor(Math.random() * fwColors.length)],
+            sparks: [],
+          })
+        }
+        if (sh.festival.timer <= 0) {
+          sh.festival.active = false
+          log('i', 'La fiesta ha terminado. Los hobbits vuelven a sus labores.')
+        }
+      }
+
+      // Física de fuegos artificiales
+      for (const fw of sh.fireworks) {
+        if (!fw.exploded) {
+          fw.y += fw.vy
+          fw.vy += 0.05
+          fw.life++
+          if (fw.vy >= 0 || fw.life > fw.maxLife) {
+            fw.exploded = true
+            for (let i = 0; i < 24; i++) {
+              const a = (i / 24) * Math.PI * 2
+              const sp = 1.5 + Math.random() * 1.5
+              fw.sparks.push({ x: fw.x, y: fw.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 40 })
+            }
+          }
+        } else {
+          for (const s of fw.sparks) {
+            s.x += s.vx; s.y += s.vy; s.vy += 0.04; s.life--
+          }
+          fw.sparks = fw.sparks.filter(s => s.life > 0)
+        }
+      }
+      sh.fireworks = sh.fireworks.filter(fw => !fw.exploded || fw.sparks.length > 0)
     }
 
     // — UPDATE HERO COMPANIONS —
@@ -2052,6 +2535,11 @@ function GameInner() {
           if (!st.heroMode) {
             p.hp -= naz.dmg
             playSfx('damage')
+          }
+          // La araña deja al jugador enredado (ralentizado)
+          if (naz.kind === 'spider') {
+            p.webbed = 120
+            st.fx.push({ x: p.x, y: p.y - 30, text: '¡ENREDADO!', color: '#dde', vy: -1.0, life: 50, alpha: 1 } as FX)
           }
           p.invT = 60
           naz.atkT = 60
@@ -2485,38 +2973,419 @@ function GameInner() {
         ctx.fillRect(x, y, T, T)
         break
       case 'door':
+        // El umbral de tierra; el agujero-hobbit 3D se dibuja encima en la capa de estructuras
         ctx.fillStyle = '#3a4818'
         ctx.fillRect(x, y, T, T)
-        ctx.fillStyle = '#2a3a10'
-        ctx.beginPath()
-        ctx.arc(x + 16, y + 20, 14, Math.PI, 0, true)
-        ctx.fill()
-        ctx.fillStyle = '#6a5030'
-        ctx.beginPath()
-        ctx.arc(x + 16, y + 20, 10, Math.PI, 0, true)
-        ctx.fill()
-        ctx.fillStyle = '#4a3820'
-        ctx.fillRect(x + 6, y + 10, 20, 22)
-        ctx.fillStyle = '#c8a84b'
-        ctx.beginPath()
-        ctx.arc(x + 22, y + 20, 2, 0, Math.PI * 2)
-        ctx.fill()
+        ctx.fillStyle = '#5a4a2a'
+        ctx.fillRect(x + 8, y + 22, 16, 8)
         break
       case 'mill':
-        ctx.fillStyle = '#7a6040'
+        // Suelo bajo el molino; el molino 3D se dibuja en la capa de estructuras
+        ctx.fillStyle = '#3a4818'
         ctx.fillRect(x, y, T, T)
-        ctx.fillStyle = '#5a4030'
-        ctx.fillRect(x + 8, y, 16, T)
-        ctx.strokeStyle = '#8a7050'
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.moveTo(x + 16, y + 8)
-        ctx.lineTo(x + 16, y - 8)
-        ctx.moveTo(x + 8, y + 16)
-        ctx.lineTo(x + 24, y + 16)
-        ctx.stroke()
+        break
+      // ===== BOSQUE CERRADO =====
+      case 'darktree':
+        ctx.fillStyle = '#1e2a16'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#3a2818'; ctx.fillRect(x + 13, y + 18, 6, 14)
+        ctx.fillStyle = '#1a2e14'
+        ctx.beginPath(); ctx.arc(x + 16, y + 14, 15, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#24401a'
+        ctx.beginPath(); ctx.arc(x + 11, y + 11, 8, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x + 21, y + 13, 7, 0, Math.PI * 2); ctx.fill()
+        break
+      case 'pine':
+        ctx.fillStyle = '#1e2a16'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#3a2818'; ctx.fillRect(x + 14, y + 22, 4, 10)
+        ctx.fillStyle = '#1f3a1c'
+        ctx.beginPath(); ctx.moveTo(x + 16, y + 2); ctx.lineTo(x + 5, y + 18); ctx.lineTo(x + 27, y + 18); ctx.closePath(); ctx.fill()
+        ctx.beginPath(); ctx.moveTo(x + 16, y + 10); ctx.lineTo(x + 7, y + 26); ctx.lineTo(x + 25, y + 26); ctx.closePath(); ctx.fill()
+        break
+      case 'autumntree':
+        ctx.fillStyle = tile.variant ? '#2a3a1e' : '#34543a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#4a3018'; ctx.fillRect(x + 14, y + 18, 5, 14)
+        ctx.fillStyle = '#c87028'
+        ctx.beginPath(); ctx.arc(x + 16, y + 13, 13, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#e2a040'
+        ctx.beginPath(); ctx.arc(x + 11, y + 10, 6, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x + 21, y + 12, 5, 0, Math.PI * 2); ctx.fill()
+        break
+      case 'leaves':
+        ctx.fillStyle = '#24331a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(180,120,50,0.5)'
+        ctx.beginPath(); ctx.arc(x + 8, y + 10, 3, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x + 22, y + 20, 3, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x + 16, y + 25, 2.5, 0, Math.PI * 2); ctx.fill()
+        break
+      case 'rock':
+        ctx.fillStyle = '#2a3a1e'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#6a6258'
+        ctx.beginPath(); ctx.ellipse(x + 16, y + 20, 11, 8, 0, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#8a8278'
+        ctx.beginPath(); ctx.ellipse(x + 13, y + 17, 5, 4, 0, 0, Math.PI * 2); ctx.fill()
+        break
+      case 'water':
+        ctx.fillStyle = '#2a4a6a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(120,180,220,0.3)'
+        ctx.fillRect(x, y + 8 + (tile.variant ? 6 : 0), T, 3)
+        ctx.fillRect(x, y + 20 - (tile.variant ? 6 : 0), T, 2)
+        break
+      case 'bridge':
+        ctx.fillStyle = '#6a4a28'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#5a3a20'
+        for (let i = 0; i < 4; i++) ctx.fillRect(x, y + i * 8, T, 2)
+        ctx.fillStyle = '#4a2a18'; ctx.fillRect(x, y, 3, T); ctx.fillRect(x + T - 3, y, 3, T)
+        break
+      // ===== RIVENDEL =====
+      case 'cobble':
+        ctx.fillStyle = '#b8a878'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(120,100,70,0.35)'
+        ctx.strokeStyle = 'rgba(90,75,50,0.4)'; ctx.lineWidth = 1
+        ctx.strokeRect(x + 2, y + 2, 12, 12); ctx.strokeRect(x + 16, y + 2, 12, 12)
+        ctx.strokeRect(x + 2, y + 16, 12, 12); ctx.strokeRect(x + 16, y + 16, 12, 12)
+        break
+      case 'rivwater':
+        ctx.fillStyle = '#3a6a8a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(180,220,240,0.4)'
+        ctx.fillRect(x, y + 6, T, 2); ctx.fillRect(x, y + 16, T, 3); ctx.fillRect(x, y + 26, T, 2)
+        break
+      case 'cliff':
+        ctx.fillStyle = '#5a4a3a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#3a2e22'
+        ctx.fillRect(x, y, T, 6); ctx.fillRect(x + 6, y + 10, 4, T - 10)
+        ctx.fillStyle = '#7a6a54'; ctx.fillRect(x + 14, y + 4, T - 14, 4)
+        break
+      case 'arch':
+        ctx.fillStyle = '#cabfa0'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#e8dcc0'
+        ctx.fillRect(x + 6, y, 6, T)
+        ctx.fillRect(x + 20, y, 6, T)
+        ctx.fillStyle = '#d8ccb0'
+        ctx.beginPath(); ctx.arc(x + 16, y + 4, 12, Math.PI, 0); ctx.fill()
+        break
+      case 'portal':
+        // Marca de transición entre regiones (brillo suave)
+        ctx.fillStyle = '#3a4818'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(255,230,150,0.18)'
+        ctx.fillRect(x, y, T, T)
+        ctx.strokeStyle = 'rgba(255,220,120,0.4)'; ctx.lineWidth = 1
+        ctx.strokeRect(x + 2, y + 2, T - 4, T - 4)
         break
     }
+  }, [])
+  // Dibuja un agujero-hobbit como colina abovedada con puerta redonda, ventanas
+  // iluminadas, chimenea con humo animado. cx = centro X en pantalla, groundY = línea de suelo.
+  const drawHobbitHole = useCallback((
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    groundY: number,
+    frame: number,
+    idx: number,
+    size: number
+  ) => {
+    const W = 92 * size
+    const H = 74 * size
+    const doorR = 15 * size
+    const doorCol = HOLE_DOOR_COLORS[idx % HOLE_DOOR_COLORS.length]
+
+    ctx.save()
+
+    // Sombra proyectada en el suelo
+    ctx.fillStyle = 'rgba(0,0,0,0.30)'
+    ctx.beginPath()
+    ctx.ellipse(cx + 6 * size, groundY + 2, W * 0.55, 12 * size, 0, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Colina/montículo cubierto de césped (domo) con degradado para volumen
+    const topY = groundY - H
+    const grad = ctx.createRadialGradient(cx - W * 0.2, topY + H * 0.3, 6, cx, topY + H * 0.5, W * 0.8)
+    grad.addColorStop(0, '#4a6e2a')
+    grad.addColorStop(0.55, '#36531e')
+    grad.addColorStop(1, '#243814')
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.moveTo(cx - W / 2, groundY)
+    ctx.quadraticCurveTo(cx - W / 2, topY, cx, topY)
+    ctx.quadraticCurveTo(cx + W / 2, topY, cx + W / 2, groundY)
+    ctx.closePath()
+    ctx.fill()
+
+    // Mechones de césped (textura)
+    ctx.fillStyle = 'rgba(70,110,42,0.55)'
+    for (let i = 0; i < 5; i++) {
+      const gx = cx - W * 0.35 + (i * W * 0.18)
+      const gy = topY + 10 * size + (i % 2) * 8 * size
+      ctx.beginPath()
+      ctx.arc(gx, gy, 5 * size, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    // Marco de piedra de la puerta (retranqueo)
+    ctx.fillStyle = '#9a8a6a'
+    ctx.beginPath()
+    ctx.arc(cx, groundY - doorR - 4 * size, doorR + 4 * size, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#7a6a4a'
+    ctx.fillRect(cx - doorR - 4 * size, groundY - doorR, (doorR + 4 * size) * 2, doorR)
+
+    // Puerta redonda de madera
+    const doorCy = groundY - doorR - 2 * size
+    ctx.fillStyle = doorCol
+    ctx.beginPath()
+    ctx.arc(cx, doorCy, doorR, 0, Math.PI * 2)
+    ctx.fill()
+    // Tablones verticales
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)'
+    ctx.lineWidth = 1
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath()
+      ctx.moveTo(cx + i * 5 * size, doorCy - doorR + 3)
+      ctx.lineTo(cx + i * 5 * size, doorCy + doorR - 3)
+      ctx.stroke()
+    }
+    // Pomo de latón centrado (icónico)
+    ctx.fillStyle = '#e8c860'
+    ctx.beginPath()
+    ctx.arc(cx, doorCy, 2.4 * size, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Ventanas redondas iluminadas con parpadeo cálido
+    const flick = 0.55 + 0.25 * Math.sin(frame * 0.08 + idx * 1.7)
+    const winR = 7 * size
+    for (const wx of [cx - W * 0.32, cx + W * 0.32]) {
+      const wy = groundY - H * 0.42
+      ctx.fillStyle = '#5a4a2a'
+      ctx.beginPath(); ctx.arc(wx, wy, winR + 2 * size, 0, Math.PI * 2); ctx.fill()
+      ctx.fillStyle = `rgba(255,210,120,${flick})`
+      ctx.beginPath(); ctx.arc(wx, wy, winR, 0, Math.PI * 2); ctx.fill()
+      // Crucetas
+      ctx.strokeStyle = '#5a4a2a'; ctx.lineWidth = 1.2 * size
+      ctx.beginPath()
+      ctx.moveTo(wx - winR, wy); ctx.lineTo(wx + winR, wy)
+      ctx.moveTo(wx, wy - winR); ctx.lineTo(wx, wy + winR)
+      ctx.stroke()
+    }
+
+    // Chimenea de piedra en lo alto del montículo
+    const chX = cx + W * 0.22
+    const chY = topY + 6 * size
+    ctx.fillStyle = '#8a7a64'
+    ctx.fillRect(chX, chY - 14 * size, 9 * size, 16 * size)
+    ctx.fillStyle = '#6a5a44'
+    ctx.fillRect(chX - 2 * size, chY - 16 * size, 13 * size, 4 * size)
+
+    // Humo animado que asciende y se desvanece
+    for (let i = 0; i < 4; i++) {
+      const prog = ((frame * 0.6 + i * 22) % 80) / 80
+      const sx2 = chX + 4 * size + Math.sin(frame * 0.05 + i) * 6 * size
+      const sy2 = chY - 16 * size - prog * 46 * size
+      ctx.fillStyle = `rgba(220,220,210,${(1 - prog) * 0.4})`
+      ctx.beginPath()
+      ctx.arc(sx2, sy2, (2 + prog * 5) * size, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    ctx.restore()
+  }, [])
+
+  // Molino de la Comarca con aspas giratorias
+  const drawMill = useCallback((
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    groundY: number,
+    frame: number
+  ) => {
+    ctx.save()
+    const W = 46, H = 88
+    const topY = groundY - H
+
+    // Sombra
+    ctx.fillStyle = 'rgba(0,0,0,0.30)'
+    ctx.beginPath()
+    ctx.ellipse(cx + 6, groundY + 2, W * 0.7, 12, 0, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Torre cónica de piedra con degradado
+    const grad = ctx.createLinearGradient(cx - W / 2, 0, cx + W / 2, 0)
+    grad.addColorStop(0, '#9a8a72')
+    grad.addColorStop(0.5, '#b6a888')
+    grad.addColorStop(1, '#7a6c56')
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.moveTo(cx - W / 2, groundY)
+    ctx.lineTo(cx - W / 3, topY + 16)
+    ctx.lineTo(cx + W / 3, topY + 16)
+    ctx.lineTo(cx + W / 2, groundY)
+    ctx.closePath()
+    ctx.fill()
+
+    // Hiladas de piedra
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)'
+    ctx.lineWidth = 1
+    for (let i = 1; i < 4; i++) {
+      const yy = groundY - (H - 16) * (i / 4)
+      ctx.beginPath(); ctx.moveTo(cx - W / 2 + i * 2, yy); ctx.lineTo(cx + W / 2 - i * 2, yy); ctx.stroke()
+    }
+
+    // Puerta y ventana
+    ctx.fillStyle = '#4a3820'
+    ctx.fillRect(cx - 7, groundY - 22, 14, 22)
+    ctx.fillStyle = '#ffd27a'
+    ctx.fillRect(cx - 5, groundY - 44, 10, 10)
+
+    // Techo cónico
+    ctx.fillStyle = '#5a3a22'
+    ctx.beginPath()
+    ctx.moveTo(cx - W / 3 - 4, topY + 16)
+    ctx.lineTo(cx, topY - 10)
+    ctx.lineTo(cx + W / 3 + 4, topY + 16)
+    ctx.closePath()
+    ctx.fill()
+
+    // Aspas giratorias del molino
+    const bladeCy = topY + 16
+    const rot = frame * 0.04
+    ctx.strokeStyle = '#3a2a18'
+    ctx.lineWidth = 3
+    for (let i = 0; i < 4; i++) {
+      const a = rot + (i * Math.PI) / 2
+      const ex = cx + Math.cos(a) * 30
+      const ey = bladeCy + Math.sin(a) * 30
+      ctx.beginPath(); ctx.moveTo(cx, bladeCy); ctx.lineTo(ex, ey); ctx.stroke()
+      // Vela de tela
+      ctx.fillStyle = 'rgba(230,225,205,0.85)'
+      ctx.save()
+      ctx.translate(cx, bladeCy)
+      ctx.rotate(a)
+      ctx.fillRect(8, -4, 22, 8)
+      ctx.restore()
+    }
+    ctx.fillStyle = '#2a1c10'
+    ctx.beginPath(); ctx.arc(cx, bladeCy, 4, 0, Math.PI * 2); ctx.fill()
+
+    ctx.restore()
+  }, [])
+
+  // ============ RENDER DE CRIATURAS DEL BESTIARIO ============
+  // Dibuja warg, orco, araña o tumulario centrado en (cx, cy). frame anima el caminar.
+  const drawCreature = useCallback((
+    ctx: CanvasRenderingContext2D,
+    kind: EnemyKind,
+    cx: number,
+    cy: number,
+    frame: number,
+    dir: Dir
+  ) => {
+    const wobble = Math.sin(frame * 0.3) * 2
+    const faceLeft = dir === 'left'
+    ctx.save()
+
+    if (kind === 'warg') {
+      // Lobo gigante de pelaje oscuro, postura baja
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 16, 22, 6, 0, 0, Math.PI * 2); ctx.fill()
+      // Cuerpo alargado
+      ctx.fillStyle = '#3a3028'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 4, 20, 11, 0, 0, Math.PI * 2); ctx.fill()
+      // Patas
+      ctx.fillStyle = '#2a221a'
+      for (const ox of [-14, -6, 6, 14]) ctx.fillRect(cx + ox, cy + 10, 4, 8 + (ox % 2 ? wobble : -wobble))
+      // Cabeza
+      const hx = cx + (faceLeft ? -20 : 20)
+      ctx.fillStyle = '#3a3028'
+      ctx.beginPath(); ctx.ellipse(hx, cy, 10, 8, 0, 0, Math.PI * 2); ctx.fill()
+      // Hocico
+      ctx.fillStyle = '#2a221a'
+      ctx.beginPath(); ctx.ellipse(hx + (faceLeft ? -7 : 7), cy + 2, 5, 4, 0, 0, Math.PI * 2); ctx.fill()
+      // Orejas
+      ctx.fillStyle = '#3a3028'
+      ctx.beginPath(); ctx.moveTo(hx - 4, cy - 7); ctx.lineTo(hx - 7, cy - 14); ctx.lineTo(hx, cy - 8); ctx.fill()
+      ctx.beginPath(); ctx.moveTo(hx + 4, cy - 7); ctx.lineTo(hx + 7, cy - 14); ctx.lineTo(hx, cy - 8); ctx.fill()
+      // Ojos amarillos feroces
+      ctx.fillStyle = '#e2b020'
+      ctx.beginPath(); ctx.arc(hx + (faceLeft ? -4 : 4), cy - 2, 1.8, 0, Math.PI * 2); ctx.fill()
+
+    } else if (kind === 'orc') {
+      // Orco corpulento con armadura tosca
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 18, 14, 5, 0, 0, Math.PI * 2); ctx.fill()
+      // Piernas
+      ctx.fillStyle = '#2a2418'
+      ctx.fillRect(cx - 8, cy + 6, 6, 12 + wobble); ctx.fillRect(cx + 2, cy + 6, 6, 12 - wobble)
+      // Torso con armadura
+      ctx.fillStyle = '#3a4a2a'
+      ctx.fillRect(cx - 11, cy - 8, 22, 16)
+      ctx.fillStyle = '#5a5448'
+      ctx.fillRect(cx - 11, cy - 4, 22, 4)
+      // Cabeza verdosa
+      ctx.fillStyle = '#4a6a3a'
+      ctx.beginPath(); ctx.arc(cx, cy - 14, 8, 0, Math.PI * 2); ctx.fill()
+      // Colmillos
+      ctx.fillStyle = '#e8e0d0'
+      ctx.fillRect(cx - 4, cy - 9, 2, 3); ctx.fillRect(cx + 2, cy - 9, 2, 3)
+      // Ojos rojos
+      ctx.fillStyle = '#e23020'
+      ctx.beginPath(); ctx.arc(cx - 3, cy - 15, 1.5, 0, Math.PI * 2); ctx.fill()
+      ctx.beginPath(); ctx.arc(cx + 3, cy - 15, 1.5, 0, Math.PI * 2); ctx.fill()
+      // Arma (cimitarra tosca)
+      ctx.strokeStyle = '#7a6a4a'; ctx.lineWidth = 3
+      ctx.beginPath(); ctx.moveTo(cx + 12, cy + 4); ctx.lineTo(cx + 20, cy - 12); ctx.stroke()
+
+    } else if (kind === 'spider') {
+      // Araña gigante del bosque
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 12, 18, 5, 0, 0, Math.PI * 2); ctx.fill()
+      // Patas (4 por lado, animadas)
+      ctx.strokeStyle = '#1a1014'; ctx.lineWidth = 2.5
+      for (let i = 0; i < 4; i++) {
+        const ly = cy - 4 + i * 4
+        const lw = 16 + Math.sin(frame * 0.4 + i) * 3
+        ctx.beginPath(); ctx.moveTo(cx - 4, cy); ctx.lineTo(cx - 4 - lw, ly); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(cx + 4, cy); ctx.lineTo(cx + 4 + lw, ly); ctx.stroke()
+      }
+      // Abdomen
+      ctx.fillStyle = '#1a1014'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 2, 12, 10, 0, 0, Math.PI * 2); ctx.fill()
+      // Marca roja en el abdomen
+      ctx.fillStyle = '#5a1030'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 4, 5, 6, 0, 0, Math.PI * 2); ctx.fill()
+      // Cefalotórax
+      ctx.fillStyle = '#0e0a0c'
+      ctx.beginPath(); ctx.arc(cx, cy - 8, 7, 0, Math.PI * 2); ctx.fill()
+      // Ojos múltiples
+      ctx.fillStyle = '#e23060'
+      for (const ox of [-4, -1.5, 1.5, 4]) { ctx.beginPath(); ctx.arc(cx + ox, cy - 10, 1.2, 0, Math.PI * 2); ctx.fill() }
+
+    } else if (kind === 'wight') {
+      // Tumulario espectral
+      const float = Math.sin(frame * 0.1) * 3
+      ctx.globalAlpha = 0.85
+      // Aura fantasmal
+      ctx.fillStyle = 'rgba(170,204,221,0.15)'
+      ctx.beginPath(); ctx.arc(cx, cy - 4 + float, 22, 0, Math.PI * 2); ctx.fill()
+      // Túnica andrajosa
+      ctx.fillStyle = '#2a3038'
+      ctx.beginPath()
+      ctx.moveTo(cx - 12, cy + 16 + float)
+      ctx.lineTo(cx - 8, cy - 12 + float)
+      ctx.quadraticCurveTo(cx, cy - 20 + float, cx + 8, cy - 12 + float)
+      ctx.lineTo(cx + 12, cy + 16 + float)
+      // Borde irregular
+      ctx.lineTo(cx + 6, cy + 12 + float); ctx.lineTo(cx, cy + 16 + float); ctx.lineTo(cx - 6, cy + 12 + float)
+      ctx.closePath(); ctx.fill()
+      // Capucha
+      ctx.fillStyle = '#1a2028'
+      ctx.beginPath(); ctx.arc(cx, cy - 10 + float, 9, Math.PI, 0); ctx.fill()
+      // Ojos brillantes helados
+      ctx.fillStyle = '#aaccdd'
+      ctx.shadowColor = '#aaccdd'; ctx.shadowBlur = 8
+      ctx.beginPath(); ctx.arc(cx - 4, cy - 10 + float, 2, 0, Math.PI * 2); ctx.fill()
+      ctx.beginPath(); ctx.arc(cx + 4, cy - 10 + float, 2, 0, Math.PI * 2); ctx.fill()
+      ctx.shadowBlur = 0
+      ctx.globalAlpha = 1
+    }
+
+    ctx.restore()
   }, [])
 
   const drawMinimap = useCallback(() => {
@@ -2614,6 +3483,90 @@ function GameInner() {
         drawTile(ctx, tx, ty, st.map[ty][tx], sx, sy)
       }
     }
+
+    // Capa de estructuras pseudo-3D (agujeros-hobbit y molino) sobre el suelo
+    if (st.region === 'comarca') {
+    for (const h of HOLES) {
+      const cx = h.tx * T - sx + T / 2
+      const groundY = (h.ty + 1) * T - sy
+      if (cx < -120 || cx > canvas.width + 120 || groundY < -120 || groundY > canvas.height + 160) continue
+      drawHobbitHole(ctx, cx, groundY, st.frameCount, HOLES.indexOf(h), h.size)
+    }
+    {
+      const millCx = 45 * T - sx + T / 2
+      const millGroundY = (31 + 1) * T - sy
+      if (millCx > -120 && millCx < canvas.width + 120 && millGroundY > -120 && millGroundY < canvas.height + 200) {
+        drawMill(ctx, millCx, millGroundY, st.frameCount)
+      }
+    }
+
+    // — Jardines de la Comarca (crecen con el tiempo) —
+    for (const g of st.shire.gardens) {
+      const gx = g.x - sx, gy = g.y - sy
+      if (gx < -40 || gx > canvas.width + 40 || gy < -40 || gy > canvas.height + 40) continue
+      // Parcela de tierra
+      ctx.fillStyle = '#5a4028'
+      ctx.beginPath(); ctx.ellipse(gx, gy, 16, 11, 0, 0, Math.PI * 2); ctx.fill()
+      // Plantas según crecimiento
+      const plants = Math.floor((g.growth / 100) * 5) + 1
+      for (let i = 0; i < plants; i++) {
+        const px = gx - 10 + (i * 5)
+        const ph = 2 + (g.growth / 100) * 8
+        ctx.strokeStyle = '#3a7a2a'; ctx.lineWidth = 2
+        ctx.beginPath(); ctx.moveTo(px, gy + 3); ctx.lineTo(px, gy + 3 - ph); ctx.stroke()
+        if (g.growth > 70) {
+          // Flores/verduras maduras
+          ctx.fillStyle = i % 2 ? '#e25a5a' : '#e2c84a'
+          ctx.beginPath(); ctx.arc(px, gy + 3 - ph, 2.2, 0, Math.PI * 2); ctx.fill()
+        }
+      }
+    }
+
+    // — Nuevos agujeros-hobbit en construcción / terminados —
+    for (const nh of st.shire.newHoles) {
+      const cx = nh.x - sx, groundY = nh.y - sy
+      if (cx < -120 || cx > canvas.width + 120 || groundY < -120 || groundY > canvas.height + 160) continue
+      if (nh.build >= 100) {
+        drawHobbitHole(ctx, cx, groundY, st.frameCount, Math.floor(nh.x / T), nh.size)
+      } else {
+        // Andamio de construcción con barra de progreso
+        const prog = nh.build / 100
+        ctx.fillStyle = 'rgba(90,70,40,0.5)'
+        ctx.beginPath()
+        ctx.ellipse(cx, groundY - 18 * prog, 40 * nh.size, 14 * nh.size, 0, Math.PI, 0, true)
+        ctx.fill()
+        ctx.strokeStyle = '#8a6a40'; ctx.lineWidth = 2
+        for (let i = -1; i <= 1; i++) {
+          ctx.beginPath(); ctx.moveTo(cx + i * 18, groundY); ctx.lineTo(cx + i * 18, groundY - 30 * prog); ctx.stroke()
+        }
+        // Barra de progreso
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(cx - 20, groundY + 4, 40, 4)
+        ctx.fillStyle = '#7ac84a'; ctx.fillRect(cx - 20, groundY + 4, 40 * prog, 4)
+      }
+    }
+
+    // — Fuegos artificiales del festival —
+    for (const fw of st.shire.fireworks) {
+      if (!fw.exploded) {
+        const fx2 = fw.x - sx, fy2 = fw.y - sy
+        ctx.fillStyle = fw.color
+        ctx.beginPath(); ctx.arc(fx2, fy2, 3, 0, Math.PI * 2); ctx.fill()
+        // Estela
+        ctx.fillStyle = 'rgba(255,230,150,0.4)'
+        ctx.beginPath(); ctx.arc(fx2, fy2 + 6, 2, 0, Math.PI * 2); ctx.fill()
+      } else {
+        for (const s of fw.sparks) {
+          const a = s.life / 40
+          ctx.fillStyle = fw.color.replace(')', `,${a})`).replace('#', 'rgba(')
+          // fallback simple si color es hex
+          ctx.globalAlpha = a
+          ctx.fillStyle = fw.color
+          ctx.beginPath(); ctx.arc(s.x - sx, s.y - sy, 2.2, 0, Math.PI * 2); ctx.fill()
+          ctx.globalAlpha = 1
+        }
+      }
+    }
+    } // fin render Comarca
 
     for (const gm of st.groundMarks) {
       ctx.fillStyle = `rgba(20,5,30,${gm.alpha})`
@@ -2787,7 +3740,8 @@ function GameInner() {
         ctx.translate(nx, ny)
         ctx.scale(scale, scale)
         ctx.translate(-nx, -ny)
-        drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        if (naz.kind === 'nazgul') drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        else drawCreature(ctx, naz.kind, nx, ny, naz.frame, naz.dir)
         ctx.restore()
         ctx.globalAlpha = 1
       } else {
@@ -2795,21 +3749,31 @@ function GameInner() {
           ctx.globalAlpha = 0.5
         }
 
-        drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        if (naz.kind === 'nazgul') drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        else drawCreature(ctx, naz.kind, nx, ny, naz.frame, naz.dir)
         ctx.globalAlpha = 1
 
+        const ed = ENEMY_DEFS[naz.kind]
         ctx.fillStyle = '#2a0a0a'
         ctx.fillRect(nx - 20, ny - 45, 40, 6)
-        ctx.fillStyle = '#c82020'
-        ctx.fillRect(nx - 19, ny - 44, 38 * (naz.hp / naz.maxhp), 4)
+        ctx.fillStyle = ed.accent
+        ctx.fillRect(nx - 19, ny - 44, 38 * Math.max(0, naz.hp / naz.maxhp), 4)
 
         ctx.font = 'bold 8px monospace'
-        ctx.fillStyle = '#ff6040'
+        ctx.fillStyle = naz.kind === 'wight' ? '#aaccdd' : '#ff6040'
         ctx.textAlign = 'center'
-        ctx.fillText('NAZGÛL', nx, ny + 25)
+        ctx.fillText(ed.name.toUpperCase(), nx, ny + 25)
+
+        // Telaraña ralentizadora si está afectado
+        if (naz.webSlow && naz.webSlow > 0) {
+          ctx.strokeStyle = 'rgba(220,220,230,0.4)'; ctx.lineWidth = 1
+          for (let a = 0; a < 6; a++) {
+            ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(nx + Math.cos(a) * 14, ny + Math.sin(a) * 14); ctx.stroke()
+          }
+        }
 
         if (naz.poweredUp > 0) {
-          ctx.fillStyle = '#c82020'
+          ctx.fillStyle = ed.accent
           ctx.fillText(`ALMAS: ${naz.poweredUp}`, nx, ny + 35)
         }
       }
@@ -2973,8 +3937,37 @@ function GameInner() {
       ctx.globalAlpha = 1
     }
 
+    // Overlay atmosférico de la región (niebla del bosque, brillo élfico, etc.)
+    const rdef = REGIONS[st.region]
+    if (rdef.fogColor && !rdef.fogColor.endsWith('0.0)')) {
+      ctx.fillStyle = rdef.fogColor
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
+    if (rdef.ambientTint) {
+      ctx.fillStyle = rdef.ambientTint
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
+
+    // Fundido a negro durante la transición entre regiones
+    if (st.regionTransition.active) {
+      ctx.fillStyle = `rgba(0,0,0,${Math.min(1, st.regionTransition.progress)})`
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      if (st.regionTransition.progress > 0.6 && st.regionTransition.to) {
+        const rd = REGIONS[st.regionTransition.to]
+        ctx.fillStyle = '#e2c84a'
+        ctx.font = 'bold 28px serif'
+        ctx.textAlign = 'center'
+        ctx.globalAlpha = Math.min(1, (st.regionTransition.progress - 0.6) / 0.4)
+        ctx.fillText(rd.name, canvas.width / 2, canvas.height / 2 - 6)
+        ctx.font = 'italic 14px serif'
+        ctx.fillStyle = '#c8b888'
+        ctx.fillText(rd.subtitle, canvas.width / 2, canvas.height / 2 + 18)
+        ctx.globalAlpha = 1
+      }
+    }
+
     drawMinimap()
-  }, [drawTile, drawSprite, drawMinimap])
+  }, [drawTile, drawSprite, drawMinimap, drawCreature])
 
   const loop = useCallback(() => {
     if (screen === 'game' && S.current?.gameActive) {
@@ -3189,6 +4182,21 @@ function GameInner() {
               </div>
               <div className="text-[#c8a84b] text-xs font-medium">
                 💰 {S.current.p.gold} MC
+              </div>
+              <div className="flex items-center gap-1 justify-end mt-0.5">
+                <span className="text-[#7ac84a] text-[10px]">{S.current.shire.festival.active ? '🎆' : '🌻'}</span>
+                <div className="w-16 h-2 rounded-full bg-[#2a2218] overflow-hidden border border-[rgba(122,200,74,0.2)] relative">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.round(S.current.shire.prosperity)}%`,
+                      background: S.current.shire.prosperity > S.current.shire.prosperityCap ? '#e2a84a' : '#7ac84a',
+                    }}
+                  />
+                  {/* Marca del tope sostenible */}
+                  <div className="absolute top-0 bottom-0 w-px bg-[#e2c84a]" style={{ left: `${Math.round(S.current.shire.prosperityCap)}%` }} />
+                </div>
+                <span className="text-[#7ac84a] text-[9px] tabular-nums">{Math.round(S.current.shire.prosperity)}</span>
               </div>
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation();
