@@ -362,6 +362,13 @@ function GameInner() {
   const [sfxEnabled, setSfxEnabled] = useState(true)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const minimapRef = useRef<HTMLCanvasElement>(null)
+  const S = useRef<GameState | null>(null)
+  const animRef = useRef<number>(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const logRef = useRef<HTMLDivElement>(null)
 
   // Detectar parámetro char del URL (viene del landing)
   useEffect(() => {
