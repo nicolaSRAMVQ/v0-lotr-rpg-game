@@ -240,6 +240,7 @@ interface Firework {
 }
 
 interface Nazgul {
+  kind: EnemyKind
   x: number
   y: number
   hp: number
@@ -255,6 +256,20 @@ interface Nazgul {
   invT: number
   deathFrame: number
   waveNum: number
+  webSlow?: number
+}
+
+type EnemyKind = 'nazgul' | 'warg' | 'orc' | 'spider' | 'wight'
+
+// Definición visual/comportamiento de cada criatura del bestiario
+const ENEMY_DEFS: Record<EnemyKind, {
+  name: string; color: string; accent: string; hp: number; spd: number; dmg: number; size: number
+}> = {
+  nazgul: { name: 'Nazgûl', color: '#1a1a1f', accent: '#6a0010', hp: 5, spd: 1.0, dmg: 1, size: 1.0 },
+  warg:   { name: 'Warg',   color: '#3a3028', accent: '#8a6a3a', hp: 4, spd: 1.7, dmg: 1, size: 0.95 },
+  orc:    { name: 'Orco',   color: '#3a4a2a', accent: '#7a3020', hp: 6, spd: 0.85, dmg: 2, size: 1.0 },
+  spider: { name: 'Araña',  color: '#1a1014', accent: '#5a1030', hp: 4, spd: 1.2, dmg: 1, size: 1.1 },
+  wight:  { name: 'Tumulario', color: '#2a3038', accent: '#aaccdd', hp: 7, spd: 0.6, dmg: 2, size: 1.0 },
 }
 
 interface HeroCompanion {
@@ -321,6 +336,7 @@ interface Player {
   weaponSlot: 'main' | 'secondary'
   spellCooldowns: Record<string, number>
   activeEffects: { effect: string; duration: number }[]
+  webbed: number
 }
 
 interface Merchant {
@@ -802,18 +818,20 @@ function GameInner() {
     })
   }, [])
 
-  const createNazgul = useCallback((waveNum: number = 1): Nazgul => {
-    const baseSpd = 0.7
-    const baseHp = 20
+  const createNazgul = useCallback((waveNum: number = 1, kind: EnemyKind = 'nazgul'): Nazgul => {
+    const def = ENEMY_DEFS[kind]
+    const baseSpd = 0.7 * def.spd
+    const baseHp = 20 * (def.hp / 5)   // escala relativa al Nazgûl base
     const spdBonus = (waveNum - 1) * 0.1
     const hpBonus = (waveNum - 1) * 2
     return {
+      kind,
       x: (WW - 3) * T,
       y: 38 * T,
       hp: baseHp + hpBonus,
       maxhp: baseHp + hpBonus,
       spd: baseSpd + spdBonus,
-      dmg: 4,
+      dmg: def.dmg * 4,
       state: 'hunt',
       dir: 'left',
       frame: 0,
@@ -823,6 +841,7 @@ function GameInner() {
       deathFrame: 0,
       waveNum,
       confusedTimer: 0,
+      webSlow: 0,
     }
   }, [])
 
@@ -915,6 +934,7 @@ function GameInner() {
         weaponSlot: 'main',
         spellCooldowns: {},
         activeEffects: [],
+      webbed: 0,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -1068,15 +1088,18 @@ function GameInner() {
       log('s', 'Modo Exploración activado.')
       notify('EXPLORACIÓN', '#5a8a3a')
     } else if (cmd.startsWith('/nazgul ')) {
-      const n = parseInt(cmd.replace('/nazgul ', '')) || 1
+      const args = cmd.replace('/nazgul ', '').trim().split(/\s+/)
+      const n = parseInt(args[0]) || 1
+      const kindArg = (args[1] || 'nazgul') as EnemyKind
+      const kind: EnemyKind = ENEMY_DEFS[kindArg] ? kindArg : 'nazgul'
       for (let i = 0; i < n; i++) {
-        const naz = createNazgul(st.wave + 1)
+        const naz = createNazgul(st.wave + 1, kind)
         naz.x = (WW - 3 - i * 2) * T
         st.nazgulList.push(naz)
         if (!st.nazgul) st.nazgul = naz
       }
-      log('d', `¡${n} NAZGÛL INVOCADOS!`)
-      notify('⚠ NAZGÛL', '#e24b4a')
+      log('d', `¡${n} ${ENEMY_DEFS[kind].name.toUpperCase()} INVOCADOS!`)
+      notify(`⚠ ${ENEMY_DEFS[kind].name}`, '#e24b4a')
     } else if (cmd.startsWith('/invocar ')) {
       const name = cmd.replace('/invocar ', '')
       log('s', `Invocando a ${name}... (próximamente)`)
@@ -1883,14 +1906,18 @@ function GameInner() {
         if (st.waveDelay === 0 && st.wave < 10) {
           st.wave++
           const count = st.wave
+          const pool = REGIONS[st.region].enemies
           for (let i = 0; i < count; i++) {
-            const newNaz = createNazgul(st.wave)
+            // Elegir tipo de enemigo según el bestiario de la región
+            const kind = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'nazgul'
+            const newNaz = createNazgul(st.wave, kind)
             newNaz.x = (WW - 3 - i * 3) * T
             newNaz.y = (36 + (i % 3) * 2) * T
             st.nazgulList.push(newNaz)
             if (!st.nazgul) st.nazgul = newNaz
           }
-          log('d', `¡OLEADA ${st.wave} — ${count} NAZGÛL!`)
+          const regionEnemyName = pool.length === 1 ? ENEMY_DEFS[pool[0]].name.toUpperCase() : 'ENEMIGOS'
+          log('d', `¡OLEADA ${st.wave} — ${count} ${regionEnemyName}!`)
           notify(`⚠ OLEADA ${st.wave} ×${count}`, '#e24b4a')
         }
       }
@@ -1914,8 +1941,11 @@ function GameInner() {
       const mag = Math.sqrt(dx * dx + dy * dy)
       dx /= mag
       dy /= mag
-      const nx = p.x + dx * p.spd
-      const ny = p.y + dy * p.spd
+      // Enredado por telaraña de araña: media velocidad
+      if (p.webbed && p.webbed > 0) p.webbed--
+      const effSpd = (p.webbed && p.webbed > 0) ? p.spd * 0.45 : p.spd
+      const nx = p.x + dx * effSpd
+      const ny = p.y + dy * effSpd
       if (!isSolid(nx, p.y)) p.x = nx
       if (!isSolid(p.x, ny)) p.y = ny
       p.frame++
@@ -2505,6 +2535,11 @@ function GameInner() {
           if (!st.heroMode) {
             p.hp -= naz.dmg
             playSfx('damage')
+          }
+          // La araña deja al jugador enredado (ralentizado)
+          if (naz.kind === 'spider') {
+            p.webbed = 120
+            st.fx.push({ x: p.x, y: p.y - 30, text: '¡ENREDADO!', color: '#dde', vy: -1.0, life: 50, alpha: 1 } as FX)
           }
           p.invT = 60
           naz.atkT = 60
@@ -3231,6 +3266,128 @@ function GameInner() {
     ctx.restore()
   }, [])
 
+  // ============ RENDER DE CRIATURAS DEL BESTIARIO ============
+  // Dibuja warg, orco, araña o tumulario centrado en (cx, cy). frame anima el caminar.
+  const drawCreature = useCallback((
+    ctx: CanvasRenderingContext2D,
+    kind: EnemyKind,
+    cx: number,
+    cy: number,
+    frame: number,
+    dir: Dir
+  ) => {
+    const wobble = Math.sin(frame * 0.3) * 2
+    const faceLeft = dir === 'left'
+    ctx.save()
+
+    if (kind === 'warg') {
+      // Lobo gigante de pelaje oscuro, postura baja
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 16, 22, 6, 0, 0, Math.PI * 2); ctx.fill()
+      // Cuerpo alargado
+      ctx.fillStyle = '#3a3028'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 4, 20, 11, 0, 0, Math.PI * 2); ctx.fill()
+      // Patas
+      ctx.fillStyle = '#2a221a'
+      for (const ox of [-14, -6, 6, 14]) ctx.fillRect(cx + ox, cy + 10, 4, 8 + (ox % 2 ? wobble : -wobble))
+      // Cabeza
+      const hx = cx + (faceLeft ? -20 : 20)
+      ctx.fillStyle = '#3a3028'
+      ctx.beginPath(); ctx.ellipse(hx, cy, 10, 8, 0, 0, Math.PI * 2); ctx.fill()
+      // Hocico
+      ctx.fillStyle = '#2a221a'
+      ctx.beginPath(); ctx.ellipse(hx + (faceLeft ? -7 : 7), cy + 2, 5, 4, 0, 0, Math.PI * 2); ctx.fill()
+      // Orejas
+      ctx.fillStyle = '#3a3028'
+      ctx.beginPath(); ctx.moveTo(hx - 4, cy - 7); ctx.lineTo(hx - 7, cy - 14); ctx.lineTo(hx, cy - 8); ctx.fill()
+      ctx.beginPath(); ctx.moveTo(hx + 4, cy - 7); ctx.lineTo(hx + 7, cy - 14); ctx.lineTo(hx, cy - 8); ctx.fill()
+      // Ojos amarillos feroces
+      ctx.fillStyle = '#e2b020'
+      ctx.beginPath(); ctx.arc(hx + (faceLeft ? -4 : 4), cy - 2, 1.8, 0, Math.PI * 2); ctx.fill()
+
+    } else if (kind === 'orc') {
+      // Orco corpulento con armadura tosca
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 18, 14, 5, 0, 0, Math.PI * 2); ctx.fill()
+      // Piernas
+      ctx.fillStyle = '#2a2418'
+      ctx.fillRect(cx - 8, cy + 6, 6, 12 + wobble); ctx.fillRect(cx + 2, cy + 6, 6, 12 - wobble)
+      // Torso con armadura
+      ctx.fillStyle = '#3a4a2a'
+      ctx.fillRect(cx - 11, cy - 8, 22, 16)
+      ctx.fillStyle = '#5a5448'
+      ctx.fillRect(cx - 11, cy - 4, 22, 4)
+      // Cabeza verdosa
+      ctx.fillStyle = '#4a6a3a'
+      ctx.beginPath(); ctx.arc(cx, cy - 14, 8, 0, Math.PI * 2); ctx.fill()
+      // Colmillos
+      ctx.fillStyle = '#e8e0d0'
+      ctx.fillRect(cx - 4, cy - 9, 2, 3); ctx.fillRect(cx + 2, cy - 9, 2, 3)
+      // Ojos rojos
+      ctx.fillStyle = '#e23020'
+      ctx.beginPath(); ctx.arc(cx - 3, cy - 15, 1.5, 0, Math.PI * 2); ctx.fill()
+      ctx.beginPath(); ctx.arc(cx + 3, cy - 15, 1.5, 0, Math.PI * 2); ctx.fill()
+      // Arma (cimitarra tosca)
+      ctx.strokeStyle = '#7a6a4a'; ctx.lineWidth = 3
+      ctx.beginPath(); ctx.moveTo(cx + 12, cy + 4); ctx.lineTo(cx + 20, cy - 12); ctx.stroke()
+
+    } else if (kind === 'spider') {
+      // Araña gigante del bosque
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 12, 18, 5, 0, 0, Math.PI * 2); ctx.fill()
+      // Patas (4 por lado, animadas)
+      ctx.strokeStyle = '#1a1014'; ctx.lineWidth = 2.5
+      for (let i = 0; i < 4; i++) {
+        const ly = cy - 4 + i * 4
+        const lw = 16 + Math.sin(frame * 0.4 + i) * 3
+        ctx.beginPath(); ctx.moveTo(cx - 4, cy); ctx.lineTo(cx - 4 - lw, ly); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(cx + 4, cy); ctx.lineTo(cx + 4 + lw, ly); ctx.stroke()
+      }
+      // Abdomen
+      ctx.fillStyle = '#1a1014'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 2, 12, 10, 0, 0, Math.PI * 2); ctx.fill()
+      // Marca roja en el abdomen
+      ctx.fillStyle = '#5a1030'
+      ctx.beginPath(); ctx.ellipse(cx, cy + 4, 5, 6, 0, 0, Math.PI * 2); ctx.fill()
+      // Cefalotórax
+      ctx.fillStyle = '#0e0a0c'
+      ctx.beginPath(); ctx.arc(cx, cy - 8, 7, 0, Math.PI * 2); ctx.fill()
+      // Ojos múltiples
+      ctx.fillStyle = '#e23060'
+      for (const ox of [-4, -1.5, 1.5, 4]) { ctx.beginPath(); ctx.arc(cx + ox, cy - 10, 1.2, 0, Math.PI * 2); ctx.fill() }
+
+    } else if (kind === 'wight') {
+      // Tumulario espectral
+      const float = Math.sin(frame * 0.1) * 3
+      ctx.globalAlpha = 0.85
+      // Aura fantasmal
+      ctx.fillStyle = 'rgba(170,204,221,0.15)'
+      ctx.beginPath(); ctx.arc(cx, cy - 4 + float, 22, 0, Math.PI * 2); ctx.fill()
+      // Túnica andrajosa
+      ctx.fillStyle = '#2a3038'
+      ctx.beginPath()
+      ctx.moveTo(cx - 12, cy + 16 + float)
+      ctx.lineTo(cx - 8, cy - 12 + float)
+      ctx.quadraticCurveTo(cx, cy - 20 + float, cx + 8, cy - 12 + float)
+      ctx.lineTo(cx + 12, cy + 16 + float)
+      // Borde irregular
+      ctx.lineTo(cx + 6, cy + 12 + float); ctx.lineTo(cx, cy + 16 + float); ctx.lineTo(cx - 6, cy + 12 + float)
+      ctx.closePath(); ctx.fill()
+      // Capucha
+      ctx.fillStyle = '#1a2028'
+      ctx.beginPath(); ctx.arc(cx, cy - 10 + float, 9, Math.PI, 0); ctx.fill()
+      // Ojos brillantes helados
+      ctx.fillStyle = '#aaccdd'
+      ctx.shadowColor = '#aaccdd'; ctx.shadowBlur = 8
+      ctx.beginPath(); ctx.arc(cx - 4, cy - 10 + float, 2, 0, Math.PI * 2); ctx.fill()
+      ctx.beginPath(); ctx.arc(cx + 4, cy - 10 + float, 2, 0, Math.PI * 2); ctx.fill()
+      ctx.shadowBlur = 0
+      ctx.globalAlpha = 1
+    }
+
+    ctx.restore()
+  }, [])
+
   const drawMinimap = useCallback(() => {
     const mctx = minimapRef.current?.getContext('2d')
     if (!mctx || !S.current) return
@@ -3583,7 +3740,8 @@ function GameInner() {
         ctx.translate(nx, ny)
         ctx.scale(scale, scale)
         ctx.translate(-nx, -ny)
-        drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        if (naz.kind === 'nazgul') drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        else drawCreature(ctx, naz.kind, nx, ny, naz.frame, naz.dir)
         ctx.restore()
         ctx.globalAlpha = 1
       } else {
@@ -3591,21 +3749,31 @@ function GameInner() {
           ctx.globalAlpha = 0.5
         }
 
-        drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        if (naz.kind === 'nazgul') drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
+        else drawCreature(ctx, naz.kind, nx, ny, naz.frame, naz.dir)
         ctx.globalAlpha = 1
 
+        const ed = ENEMY_DEFS[naz.kind]
         ctx.fillStyle = '#2a0a0a'
         ctx.fillRect(nx - 20, ny - 45, 40, 6)
-        ctx.fillStyle = '#c82020'
-        ctx.fillRect(nx - 19, ny - 44, 38 * (naz.hp / naz.maxhp), 4)
+        ctx.fillStyle = ed.accent
+        ctx.fillRect(nx - 19, ny - 44, 38 * Math.max(0, naz.hp / naz.maxhp), 4)
 
         ctx.font = 'bold 8px monospace'
-        ctx.fillStyle = '#ff6040'
+        ctx.fillStyle = naz.kind === 'wight' ? '#aaccdd' : '#ff6040'
         ctx.textAlign = 'center'
-        ctx.fillText('NAZGÛL', nx, ny + 25)
+        ctx.fillText(ed.name.toUpperCase(), nx, ny + 25)
+
+        // Telaraña ralentizadora si está afectado
+        if (naz.webSlow && naz.webSlow > 0) {
+          ctx.strokeStyle = 'rgba(220,220,230,0.4)'; ctx.lineWidth = 1
+          for (let a = 0; a < 6; a++) {
+            ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(nx + Math.cos(a) * 14, ny + Math.sin(a) * 14); ctx.stroke()
+          }
+        }
 
         if (naz.poweredUp > 0) {
-          ctx.fillStyle = '#c82020'
+          ctx.fillStyle = ed.accent
           ctx.fillText(`ALMAS: ${naz.poweredUp}`, nx, ny + 35)
         }
       }
@@ -3799,7 +3967,7 @@ function GameInner() {
     }
 
     drawMinimap()
-  }, [drawTile, drawSprite, drawMinimap])
+  }, [drawTile, drawSprite, drawMinimap, drawCreature])
 
   const loop = useCallback(() => {
     if (screen === 'game' && S.current?.gameActive) {
