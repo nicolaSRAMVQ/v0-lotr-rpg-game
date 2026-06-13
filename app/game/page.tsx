@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
 import { useGameStats } from '@/hooks/useGameStats'
 import { useTheme } from '@/hooks/useTheme'
 import { useSearchParams } from 'next/navigation'
@@ -34,6 +34,8 @@ const DIFFICULTIES = {
   normal: { name: 'Normal', hpMult: 1.0, enemyDmgMult: 1.0, enemyCount: 1, icon: '🟡' },
   hard:   { name: 'Difícil', hpMult: 0.85, enemyDmgMult: 1.3, enemyCount: 2, icon: '🔴' },
 }
+
+const ITEMS: Record<string, { icon: string; desc: string; type?: string; dmgBonus?: number; defBonus?: number; spdBonus?: number; healHp?: number; effect?: string; duration?: number; spellFor?: string[] }> = {
   // Consumibles
   lembas:       { icon: '🍞', desc: 'Pan élfico. +3 HP.', type: 'consumable', healHp: 3 },
   miruvor:      { icon: '🧴', desc: 'Cordial élfico. HP completo.', type: 'consumable', healHp: 999 },
@@ -337,6 +339,14 @@ const XP_TABLE = [0, 50, 120, 220, 360, 550, 800, 1120, 1520, 2020]
 const XP_REWARDS = { nazgul: 30, villager_saved: 10 }
 
 export default function GamePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0a0804]" />}>
+      <GameInner />
+    </Suspense>
+  )
+}
+
+function GameInner() {
   const searchParams = useSearchParams()
   const { stats, addWave, addDeath, addPlayTime } = useGameStats()
   const { theme, setTheme } = useTheme()
