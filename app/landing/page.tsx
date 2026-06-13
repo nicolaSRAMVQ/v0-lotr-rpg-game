@@ -37,8 +37,15 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1a1410] via-[#2d2416] to-[#1a1410] text-[#e8dcc8] font-mono overflow-hidden">
       {/* Animated background */}
-      <div className="fixed inset-0 opacity-10">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;utf8,<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><rect fill="%23c8a84b" x="10" y="10" width="8" height="8" opacity="0.5"/></svg>')] animate-pulse"></div>
+      <div className="fixed inset-0 opacity-10 pointer-events-none">
+        <div
+          className="absolute inset-0 animate-pulse"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle, rgba(200,168,75,0.5) 1px, transparent 1px)',
+            backgroundSize: '40px 40px',
+          }}
+        />
       </div>
 
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 py-8">
