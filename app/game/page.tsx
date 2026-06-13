@@ -395,9 +395,11 @@ interface GameState {
   merchants: Merchant[]
   activeMerchant: string | null
   shire: ShireState
+  region: RegionId
+  regionTransition: { active: boolean; to: RegionId | null; progress: number; phase: 'out' | 'in' }
 }
 
-const SOLID = new Set<TileType>(['tree', 'mill'])
+const SOLID = new Set<TileType>(['tree', 'mill', 'darktree', 'pine', 'water', 'rock', 'rivwater', 'cliff', 'arch'])
 
 const SHOPS: Record<string, { name: string; icon: string; color: string; items: { id: string; name: string; icon: string; price: number; type: 'weapon'|'armor'|'food'|'potion' }[] }> = {
   herrero: {
@@ -583,8 +585,11 @@ function GameInner() {
     S.current.fade = { text, color, life: 90 }
   }, [])
 
-  const buildMap = useCallback(() => {
+  const buildMap = useCallback((region: RegionId = 'comarca') => {
     const map: Tile[][] = []
+
+    if (region === 'bosque') return buildForestMap()
+    if (region === 'rivendell') return buildRivendellMap()
     for (let y = 0; y < WH; y++) {
       map[y] = []
       for (let x = 0; x < WW; x++) {
@@ -640,6 +645,119 @@ function GameInner() {
       }
     }
 
+    // Portal de salida al este (camino al Bosque Cerrado)
+    for (let dy = 37; dy <= 40; dy++) {
+      for (let dx = WW - 2; dx < WW; dx++) {
+        if (dy >= 0 && dy < WH && dx >= 0 && dx < WW) map[dy][dx] = { type: 'portal' }
+      }
+    }
+
+    return map
+  }, [])
+
+  // ============ GENERADOR: BOSQUE CERRADO ============
+  const buildForestMap = useCallback((): Tile[][] => {
+    const map: Tile[][] = []
+    for (let y = 0; y < WH; y++) {
+      map[y] = []
+      for (let x = 0; x < WW; x++) {
+        const variant = (x + y) % 2
+        let type: TileType = 'grass'
+        // Sendero serpenteante este-oeste
+        const winding = 38 + Math.round(Math.sin(x * 0.12) * 5)
+        if (y >= winding - 1 && y <= winding + 1) type = 'path'
+        if (type === 'grass') {
+          const r = Math.random()
+          if (r < 0.30) type = 'darktree'        // espesura densa
+          else if (r < 0.34) type = 'pine'
+          else if (r < 0.38) type = 'autumntree'
+          else if (r < 0.40) type = 'rock'
+          else if (r < 0.42) type = 'leaves'
+        }
+        map[y][x] = { type, variant }
+      }
+    }
+    // Claros (zonas abiertas) para combate y respiro
+    const clearings = [{ x: 25, y: 38 }, { x: 55, y: 38 }, { x: 80, y: 38 }]
+    for (const c of clearings) {
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const nx = c.x + dx, ny = c.y + dy
+          if (nx >= 0 && nx < WW && ny >= 0 && ny < WH && dx * dx + dy * dy <= 16) {
+            if (map[ny][nx].type !== 'path') map[ny][nx] = { type: 'grass', variant: (nx + ny) % 2 }
+          }
+        }
+      }
+    }
+    // Arroyo con puente
+    for (let y = 0; y < WH; y++) {
+      if (Math.abs(y - 38) > 1) {
+        map[y][64] = { type: 'water' }
+        map[y][65] = { type: 'water' }
+      }
+    }
+    map[38][64] = { type: 'bridge' }; map[38][65] = { type: 'bridge' }
+    map[39][64] = { type: 'bridge' }; map[39][65] = { type: 'bridge' }
+    // Portales: regreso oeste (Comarca) y salida este (Rivendell)
+    for (let dy = 37; dy <= 40; dy++) {
+      map[dy][0] = { type: 'portal' }; map[dy][1] = { type: 'portal' }
+      map[dy][WW - 1] = { type: 'portal' }; map[dy][WW - 2] = { type: 'portal' }
+    }
+    // Zonas de entrada despejadas junto a cada portal (evita spawn dentro de la espesura)
+    for (let dy = 36; dy <= 41; dy++) {
+      for (let dx = 2; dx <= 7; dx++) map[dy][dx] = { type: 'path' }
+      for (let dx = WW - 8; dx <= WW - 3; dx++) map[dy][dx] = { type: 'path' }
+    }
+    return map
+  }, [])
+
+  // ============ GENERADOR: RIVENDEL ============
+  const buildRivendellMap = useCallback((): Tile[][] => {
+    const map: Tile[][] = []
+    for (let y = 0; y < WH; y++) {
+      map[y] = []
+      for (let x = 0; x < WW; x++) {
+        const variant = (x + y) % 2
+        let type: TileType = 'grass'
+        if (type === 'grass') {
+          const r = Math.random()
+          if (r < 0.04) type = 'autumntree'
+          else if (r < 0.06) type = 'flower'
+          else if (r < 0.075) type = 'pine'
+        }
+        map[y][x] = { type, variant }
+      }
+    }
+    // Cascadas y río de Rivendel (bordes norte/sur)
+    for (let x = 0; x < WW; x++) {
+      for (let y = 0; y < 8; y++) map[y][x] = { type: 'rivwater', variant: 0 }
+      for (let y = WH - 8; y < WH; y++) map[y][x] = { type: 'rivwater', variant: 0 }
+    }
+    // Acantilados que enmarcan el valle
+    for (let x = 0; x < WW; x++) {
+      map[8][x] = { type: 'cliff' }
+      map[WH - 9][x] = { type: 'cliff' }
+    }
+    // Caminos de adoquín élfico
+    for (let x = 2; x < WW - 2; x++) { map[38][x] = { type: 'cobble' }; map[39][x] = { type: 'cobble' } }
+    for (let y = 12; y < WH - 12; y++) { map[y][50] = { type: 'cobble' } }
+    // La Última Casa (pabellón élfico central) con arcos
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -5; dx <= 5; dx++) {
+        const nx = 50 + dx, ny = 30 + dy
+        if (nx >= 0 && nx < WW && ny >= 0 && ny < WH) {
+          map[ny][nx] = { type: (Math.abs(dx) === 5 || Math.abs(dy) === 3) ? 'arch' : 'cobble' }
+        }
+      }
+    }
+    // Portal de regreso oeste (al Bosque)
+    for (let dy = 37; dy <= 40; dy++) {
+      map[dy][0] = { type: 'portal' }; map[dy][1] = { type: 'portal' }
+    }
+    // Zona de entrada despejada junto al portal
+    for (let dy = 36; dy <= 41; dy++) {
+      for (let dx = 2; dx <= 7; dx++) map[dy][dx] = { type: 'cobble' }
+    }
     return map
   }, [])
 
@@ -849,6 +967,8 @@ function GameInner() {
         cultureTimer: 0,
         lastMilestone: 0,
       },
+      region: 'comarca',
+      regionTransition: { active: false, to: null, progress: 0, phase: 'out' },
     }
 
     if (mode === 'exploration') {
@@ -1668,6 +1788,47 @@ function GameInner() {
     const p = st.p!
     st.frameCount++
 
+    // ============ TRANSICIÓN ENTRE REGIONES ============
+    if (st.regionTransition.active) {
+      const rt = st.regionTransition
+      if (rt.phase === 'out') {
+        rt.progress += 0.04
+        if (rt.progress >= 1 && rt.to) {
+          // Cambiar región: regenerar mapa y reposicionar
+          const dest = rt.to
+          const goingForward = REGIONS[st.region].next === dest
+          st.region = dest
+          st.map = buildMap(dest)
+          // Reposicionar al jugador al borde opuesto
+          if (goingForward) {
+            p.x = 3 * T; p.y = 38 * T   // entra por el oeste
+          } else {
+            p.x = (WW - 4) * T; p.y = 38 * T  // vuelve por el este
+          }
+          // Resetear cámara
+          const cv = canvasRef.current
+          if (cv) {
+            st.cam.x = Math.max(0, Math.min(WW * T - cv.width, p.x - cv.width / 2))
+            st.cam.y = Math.max(0, Math.min(WH * T - cv.height, p.y - cv.height / 2))
+          }
+          // Limpiar amenaza Nazgûl al cambiar de región (la Comarca sigue su curso)
+          st.nazgul = null
+          rt.phase = 'in'
+          rt.progress = 1
+          const rd = REGIONS[dest]
+          log('s', `Has llegado a ${rd.name} — ${rd.subtitle}.`)
+          notify(rd.name, '#e2c84a')
+        }
+        return  // congelar gameplay durante el fundido de salida
+      } else {
+        rt.progress -= 0.04
+        if (rt.progress <= 0) {
+          st.regionTransition = { active: false, to: null, progress: 0, phase: 'out' }
+        }
+        return  // congelar durante fundido de entrada
+      }
+    }
+
     if (st.screenFlash > 0) st.screenFlash--
 
     if (p.invT > 0) p.invT--
@@ -1762,6 +1923,20 @@ function GameInner() {
         p.dir = dx > 0 ? 'right' : 'left'
       } else {
         p.dir = dy > 0 ? 'down' : 'up'
+      }
+
+      // Detección de portal de transición entre regiones
+      if (!st.regionTransition.active) {
+        const ptx = Math.floor(p.x / T), pty = Math.floor(p.y / T)
+        if (ptx >= 0 && ptx < WW && pty >= 0 && pty < WH && st.map[pty][ptx].type === 'portal') {
+          const def = REGIONS[st.region]
+          // Portal al este = siguiente región; al oeste = anterior
+          const goingEast = ptx >= WW - 2
+          const dest = goingEast ? def.next : def.prev
+          if (dest) {
+            st.regionTransition = { active: true, to: dest, progress: 0, phase: 'out' }
+          }
+        }
       }
     }
 
@@ -2774,10 +2949,95 @@ function GameInner() {
         ctx.fillStyle = '#3a4818'
         ctx.fillRect(x, y, T, T)
         break
+      // ===== BOSQUE CERRADO =====
+      case 'darktree':
+        ctx.fillStyle = '#1e2a16'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#3a2818'; ctx.fillRect(x + 13, y + 18, 6, 14)
+        ctx.fillStyle = '#1a2e14'
+        ctx.beginPath(); ctx.arc(x + 16, y + 14, 15, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#24401a'
+        ctx.beginPath(); ctx.arc(x + 11, y + 11, 8, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x + 21, y + 13, 7, 0, Math.PI * 2); ctx.fill()
+        break
+      case 'pine':
+        ctx.fillStyle = '#1e2a16'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#3a2818'; ctx.fillRect(x + 14, y + 22, 4, 10)
+        ctx.fillStyle = '#1f3a1c'
+        ctx.beginPath(); ctx.moveTo(x + 16, y + 2); ctx.lineTo(x + 5, y + 18); ctx.lineTo(x + 27, y + 18); ctx.closePath(); ctx.fill()
+        ctx.beginPath(); ctx.moveTo(x + 16, y + 10); ctx.lineTo(x + 7, y + 26); ctx.lineTo(x + 25, y + 26); ctx.closePath(); ctx.fill()
+        break
+      case 'autumntree':
+        ctx.fillStyle = tile.variant ? '#2a3a1e' : '#34543a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#4a3018'; ctx.fillRect(x + 14, y + 18, 5, 14)
+        ctx.fillStyle = '#c87028'
+        ctx.beginPath(); ctx.arc(x + 16, y + 13, 13, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#e2a040'
+        ctx.beginPath(); ctx.arc(x + 11, y + 10, 6, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x + 21, y + 12, 5, 0, Math.PI * 2); ctx.fill()
+        break
+      case 'leaves':
+        ctx.fillStyle = '#24331a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(180,120,50,0.5)'
+        ctx.beginPath(); ctx.arc(x + 8, y + 10, 3, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x + 22, y + 20, 3, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x + 16, y + 25, 2.5, 0, Math.PI * 2); ctx.fill()
+        break
+      case 'rock':
+        ctx.fillStyle = '#2a3a1e'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#6a6258'
+        ctx.beginPath(); ctx.ellipse(x + 16, y + 20, 11, 8, 0, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#8a8278'
+        ctx.beginPath(); ctx.ellipse(x + 13, y + 17, 5, 4, 0, 0, Math.PI * 2); ctx.fill()
+        break
+      case 'water':
+        ctx.fillStyle = '#2a4a6a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(120,180,220,0.3)'
+        ctx.fillRect(x, y + 8 + (tile.variant ? 6 : 0), T, 3)
+        ctx.fillRect(x, y + 20 - (tile.variant ? 6 : 0), T, 2)
+        break
+      case 'bridge':
+        ctx.fillStyle = '#6a4a28'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#5a3a20'
+        for (let i = 0; i < 4; i++) ctx.fillRect(x, y + i * 8, T, 2)
+        ctx.fillStyle = '#4a2a18'; ctx.fillRect(x, y, 3, T); ctx.fillRect(x + T - 3, y, 3, T)
+        break
+      // ===== RIVENDEL =====
+      case 'cobble':
+        ctx.fillStyle = '#b8a878'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(120,100,70,0.35)'
+        ctx.strokeStyle = 'rgba(90,75,50,0.4)'; ctx.lineWidth = 1
+        ctx.strokeRect(x + 2, y + 2, 12, 12); ctx.strokeRect(x + 16, y + 2, 12, 12)
+        ctx.strokeRect(x + 2, y + 16, 12, 12); ctx.strokeRect(x + 16, y + 16, 12, 12)
+        break
+      case 'rivwater':
+        ctx.fillStyle = '#3a6a8a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(180,220,240,0.4)'
+        ctx.fillRect(x, y + 6, T, 2); ctx.fillRect(x, y + 16, T, 3); ctx.fillRect(x, y + 26, T, 2)
+        break
+      case 'cliff':
+        ctx.fillStyle = '#5a4a3a'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#3a2e22'
+        ctx.fillRect(x, y, T, 6); ctx.fillRect(x + 6, y + 10, 4, T - 10)
+        ctx.fillStyle = '#7a6a54'; ctx.fillRect(x + 14, y + 4, T - 14, 4)
+        break
+      case 'arch':
+        ctx.fillStyle = '#cabfa0'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = '#e8dcc0'
+        ctx.fillRect(x + 6, y, 6, T)
+        ctx.fillRect(x + 20, y, 6, T)
+        ctx.fillStyle = '#d8ccb0'
+        ctx.beginPath(); ctx.arc(x + 16, y + 4, 12, Math.PI, 0); ctx.fill()
+        break
+      case 'portal':
+        // Marca de transición entre regiones (brillo suave)
+        ctx.fillStyle = '#3a4818'; ctx.fillRect(x, y, T, T)
+        ctx.fillStyle = 'rgba(255,230,150,0.18)'
+        ctx.fillRect(x, y, T, T)
+        ctx.strokeStyle = 'rgba(255,220,120,0.4)'; ctx.lineWidth = 1
+        ctx.strokeRect(x + 2, y + 2, T - 4, T - 4)
+        break
     }
   }, [])
-
-  // ============ PSEUDO-3D STRUCTURES ============
   // Dibuja un agujero-hobbit como colina abovedada con puerta redonda, ventanas
   // iluminadas, chimenea con humo animado. cx = centro X en pantalla, groundY = línea de suelo.
   const drawHobbitHole = useCallback((
@@ -3068,6 +3328,7 @@ function GameInner() {
     }
 
     // Capa de estructuras pseudo-3D (agujeros-hobbit y molino) sobre el suelo
+    if (st.region === 'comarca') {
     for (const h of HOLES) {
       const cx = h.tx * T - sx + T / 2
       const groundY = (h.ty + 1) * T - sy
@@ -3148,6 +3409,7 @@ function GameInner() {
         }
       }
     }
+    } // fin render Comarca
 
     for (const gm of st.groundMarks) {
       ctx.fillStyle = `rgba(20,5,30,${gm.alpha})`
@@ -3505,6 +3767,35 @@ function GameInner() {
       ctx.textAlign = 'center'
       ctx.fillText(st.fade.text, canvas.width / 2, 60)
       ctx.globalAlpha = 1
+    }
+
+    // Overlay atmosférico de la región (niebla del bosque, brillo élfico, etc.)
+    const rdef = REGIONS[st.region]
+    if (rdef.fogColor && !rdef.fogColor.endsWith('0.0)')) {
+      ctx.fillStyle = rdef.fogColor
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
+    if (rdef.ambientTint) {
+      ctx.fillStyle = rdef.ambientTint
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
+
+    // Fundido a negro durante la transición entre regiones
+    if (st.regionTransition.active) {
+      ctx.fillStyle = `rgba(0,0,0,${Math.min(1, st.regionTransition.progress)})`
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      if (st.regionTransition.progress > 0.6 && st.regionTransition.to) {
+        const rd = REGIONS[st.regionTransition.to]
+        ctx.fillStyle = '#e2c84a'
+        ctx.font = 'bold 28px serif'
+        ctx.textAlign = 'center'
+        ctx.globalAlpha = Math.min(1, (st.regionTransition.progress - 0.6) / 0.4)
+        ctx.fillText(rd.name, canvas.width / 2, canvas.height / 2 - 6)
+        ctx.font = 'italic 14px serif'
+        ctx.fillStyle = '#c8b888'
+        ctx.fillText(rd.subtitle, canvas.width / 2, canvas.height / 2 + 18)
+        ctx.globalAlpha = 1
+      }
     }
 
     drawMinimap()
