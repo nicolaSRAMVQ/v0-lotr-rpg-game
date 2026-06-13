@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useGameStats } from '@/hooks/useGameStats'
+import { useTheme } from '@/hooks/useTheme'
 import { useSearchParams } from 'next/navigation'
 
 // ============ CONSTANTS ============
@@ -338,7 +339,8 @@ const XP_REWARDS = { nazgul: 30, villager_saved: 10 }
 export default function GamePage() {
   const searchParams = useSearchParams()
   const { stats, addWave, addDeath, addPlayTime } = useGameStats()
-  const [screen, setScreen] = useState<'charsel' | 'game' | 'dead' | 'gameover' | 'win' | 'diffsel'>('charsel')
+  const { theme, setTheme } = useTheme()
+  const [screen, setScreen] = useState<'charsel' | 'game' | 'dead' | 'gameover' | 'win' | 'diffsel' | 'pause'>('charsel')
   const [selectedChar, setSelectedChar] = useState<string | null>(null)
   const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>('normal')
   const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
@@ -2999,7 +3001,12 @@ export default function GamePage() {
       }
 
       if (e.key === 'Escape') {
-        closeDlg()
+        if (S.current?.dlg.active) {
+          closeDlg()
+        } else if (screen === 'game') {
+          setScreen('pause')
+          if (S.current) S.current.gamePaused = true
+        }
         if (S.current) {
           S.current.modMenuOpen = false
           forceUpdate(n => n + 1)
@@ -3705,6 +3712,91 @@ export default function GamePage() {
           >
             COMENZAR AVENTURA
           </button>
+        </div>
+      )}
+
+      {screen === 'pause' && (
+        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] flex flex-col items-center justify-center p-4 z-50">
+          <h1 className="text-[#c8a84b] text-3xl font-bold tracking-wider mb-8">
+            PAUSA
+          </h1>
+
+          <div className="space-y-4 max-w-xs w-full mb-8">
+            <button
+              onClick={() => {
+                setScreen('game')
+                if (S.current) S.current.gamePaused = false
+              }}
+              className="w-full px-6 py-3 bg-[#c8a84b] text-[#1a1408] font-bold rounded-lg hover:bg-[#d8b85b] transition-colors"
+            >
+              Continuar (ESC)
+            </button>
+
+            <div className="border border-[rgba(200,168,75,0.3)] p-4 rounded-lg">
+              <div className="text-[#a0956b] text-sm font-bold mb-3">Sonido</div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#8a7a5a] text-xs">Música</span>
+                  <button
+                    onClick={() => setMusicMuted(!musicMuted)}
+                    className={`px-3 py-1 rounded text-xs font-bold transition-colors ${
+                      musicMuted
+                        ? 'bg-[rgba(200,100,100,0.3)] text-[#ff9999]'
+                        : 'bg-[rgba(100,200,100,0.3)] text-[#99ff99]'
+                    }`}
+                  >
+                    {musicMuted ? 'Silenciada' : 'Activa'}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#8a7a5a] text-xs">Efectos</span>
+                  <button
+                    onClick={() => setSfxEnabled(!sfxEnabled)}
+                    className={`px-3 py-1 rounded text-xs font-bold transition-colors ${
+                      sfxEnabled
+                        ? 'bg-[rgba(100,200,100,0.3)] text-[#99ff99]'
+                        : 'bg-[rgba(200,100,100,0.3)] text-[#ff9999]'
+                    }`}
+                  >
+                    {sfxEnabled ? 'Activos' : 'Silenciados'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-[rgba(200,168,75,0.3)] p-4 rounded-lg">
+              <div className="text-[#a0956b] text-sm font-bold mb-3">Tema</div>
+              <div className="space-y-2">
+                {['dark', 'light', 'amber'].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTheme(t as any)}
+                    className={`w-full px-3 py-1.5 rounded text-xs font-bold transition-colors text-left ${
+                      theme === t
+                        ? 'bg-[#c8a84b] text-[#1a1408]'
+                        : 'bg-[rgba(200,168,75,0.1)] text-[#a0956b] hover:bg-[rgba(200,168,75,0.2)]'
+                    }`}
+                  >
+                    {t === 'dark' ? 'Oscuro' : t === 'light' ? 'Claro' : 'Ámbar'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setScreen('charsel')
+                if (S.current) S.current.gamePaused = false
+              }}
+              className="w-full px-6 py-3 bg-[rgba(200,100,100,0.3)] text-[#ff9999] font-bold rounded-lg hover:bg-[rgba(200,100,100,0.5)] transition-colors"
+            >
+              Abandonar Partida
+            </button>
+          </div>
+
+          <div className="text-[#6a5a3a] text-xs mt-4">
+            {S.current?.p && <div>Dificultad: {difficulty === 'easy' ? '🟢 Fácil' : difficulty === 'normal' ? '🟡 Normal' : '🔴 Difícil'}</div>}
+          </div>
         </div>
       )}
 
