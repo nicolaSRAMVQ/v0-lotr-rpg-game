@@ -10,6 +10,71 @@ const T = 32
 const WW = 100
 const WH = 80
 
+// ============ REGIONES ============
+type RegionId = 'comarca' | 'bosque' | 'rivendell'
+
+interface RegionDef {
+  id: RegionId
+  name: string
+  subtitle: string
+  // Paleta base del suelo y ambiente
+  ground: string
+  groundAlt: string
+  pathColor: string
+  fogColor: string      // overlay atmosférico (rgba)
+  ambientTint: string   // tinte general (rgba)
+  music: string         // descripción de ambiente
+  // Conexión con la siguiente región (borde este)
+  next: RegionId | null
+  prev: RegionId | null
+  enemies: ('warg' | 'orc' | 'spider' | 'wight' | 'nazgul')[]
+}
+
+const REGIONS: Record<RegionId, RegionDef> = {
+  comarca: {
+    id: 'comarca',
+    name: 'La Comarca',
+    subtitle: 'Hobbiton y sus verdes colinas',
+    ground: '#4a6e2a',
+    groundAlt: '#436526',
+    pathColor: '#a8915a',
+    fogColor: 'rgba(180,200,120,0.0)',
+    ambientTint: 'rgba(255,240,180,0.05)',
+    music: 'pacífica',
+    next: 'bosque',
+    prev: null,
+    enemies: ['nazgul'],
+  },
+  bosque: {
+    id: 'bosque',
+    name: 'El Bosque Cerrado',
+    subtitle: 'Espesura oscura camino al este',
+    ground: '#2a3a1e',
+    groundAlt: '#24331a',
+    pathColor: '#5a4a32',
+    fogColor: 'rgba(20,30,18,0.28)',
+    ambientTint: 'rgba(30,50,30,0.18)',
+    music: 'inquietante',
+    next: 'rivendell',
+    prev: 'comarca',
+    enemies: ['spider', 'orc', 'warg', 'wight'],
+  },
+  rivendell: {
+    id: 'rivendell',
+    name: 'Rivendel',
+    subtitle: 'El Último Hogar Acogedor',
+    ground: '#3a5a3e',
+    groundAlt: '#34543a',
+    pathColor: '#b8a878',
+    fogColor: 'rgba(180,210,230,0.10)',
+    ambientTint: 'rgba(200,220,255,0.08)',
+    music: 'élfica serena',
+    next: null,
+    prev: 'bosque',
+    enemies: [],
+  },
+}
+
 // ============ CHARACTERS ============
 const CHARS: Record<string, { name: string; spd: number; maxhp: number; dmg: number; range: number; startItems: string[] }> = {
   frodo: { name: 'FRODO', spd: 2.8, maxhp: 6, dmg: 6, range: 2.4, startItems: ['anillo', 'lembas'] },
@@ -105,6 +170,8 @@ const MOD_COMMANDS = [
 
 // ============ TYPES ============
 type TileType = 'grass' | 'path' | 'tree' | 'flower' | 'yard' | 'door' | 'mill'
+  | 'darktree' | 'water' | 'bridge' | 'rock' | 'fog' | 'autumntree' | 'pine'
+  | 'cobble' | 'rivwater' | 'arch' | 'leaves' | 'cliff' | 'portal'
 type Tile = { type: TileType; variant?: number }
 type Dir = 'down' | 'up' | 'left' | 'right'
 type GameMode = 'exploration' | 'horde'
@@ -136,6 +203,40 @@ interface Villager {
   screamed: boolean
   homeX: number
   homeY: number
+  // — Comarca viva —
+  role: 'gatherer' | 'builder' | 'artisan' | 'wanderer'
+  job: 'idle' | 'gather' | 'haul' | 'build' | 'craft'
+  jobTimer: number
+  carrying: number          // recurso que lleva encima
+  targetX: number           // destino de trabajo
+  targetY: number
+}
+
+// Estado de la Comarca: prosperidad sostenible, recursos, cultura
+interface ShireState {
+  prosperity: number        // 0–100, con tope sostenible
+  prosperityCap: number     // techo móvil; pasarlo daña el "alma"
+  wood: number
+  harvest: number
+  gardens: { x: number; y: number; growth: number }[]
+  maxGardens: number        // límite anti-ciudad
+  newHoles: { x: number; y: number; build: number; size: number }[]
+  maxHoles: number
+  festival: { active: boolean; timer: number; name: string }
+  fireworks: Firework[]
+  cultureTimer: number
+  lastMilestone: number
+}
+
+interface Firework {
+  x: number
+  y: number
+  vy: number
+  life: number
+  maxLife: number
+  exploded: boolean
+  color: string
+  sparks: { x: number; y: number; vx: number; vy: number; life: number }[]
 }
 
 interface Nazgul {
@@ -293,6 +394,7 @@ interface GameState {
   gamePaused: boolean
   merchants: Merchant[]
   activeMerchant: string | null
+  shire: ShireState
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill'])
@@ -549,6 +651,7 @@ function GameInner() {
   }, [])
 
   const spawnVillagers = useCallback((): Villager[] => {
+    const ROLES: Villager['role'][] = ['gatherer', 'builder', 'artisan', 'wanderer']
     return VILLAGER_DEFS.map((def, i) => {
       const hole = HOLES[i]
       const x = hole.tx * T, y = hole.ty * T
@@ -571,6 +674,12 @@ function GameInner() {
         screamed: false,
         homeX: x,
         homeY: y,
+        role: ROLES[i % ROLES.length],
+        job: 'idle' as const,
+        jobTimer: 60 + i * 20,
+        carrying: 0,
+        targetX: x,
+        targetY: y,
       }
     })
   }, [])
@@ -726,6 +835,20 @@ function GameInner() {
         { id: 'boticario',  x: 55 * T, y: 44 * T, dir: 'down', frame: 0 },
       ],
       activeMerchant: null,
+      shire: {
+        prosperity: 35,
+        prosperityCap: 60,
+        wood: 0,
+        harvest: 0,
+        gardens: [],
+        maxGardens: 8,
+        newHoles: [],
+        maxHoles: 4,
+        festival: { active: false, timer: 0, name: '' },
+        fireworks: [],
+        cultureTimer: 0,
+        lastMilestone: 0,
+      },
     }
 
     if (mode === 'exploration') {
@@ -1693,15 +1816,161 @@ function GameInner() {
           }
         }
       } else if (v.state === 'walk') {
-        v.patrolTimer--
-        if (v.patrolTimer <= 0) {
-          v.patrolIdx = (v.patrolIdx + 1) % v.patrol.length
-          v.patrolTimer = 80
+        // — COMARCA VIVA: trabajo según rol cuando no hay amenaza —
+        const sh = st.shire
+        const nazThreat = naz && naz.hp > 0 && naz.state !== 'dying'
+        if (!nazThreat && !sh.festival.active && v.role !== 'wanderer') {
+          v.jobTimer--
+          if (v.job === 'idle' && v.jobTimer <= 0) {
+            // Asignar nueva tarea según rol
+            if (v.role === 'gatherer') {
+              // Ir a un árbol/cosecha cercano
+              v.job = Math.random() < 0.5 ? 'gather' : 'haul'
+              v.targetX = v.homeX + (Math.random() - 0.5) * T * 10
+              v.targetY = v.homeY + (Math.random() - 0.5) * T * 8
+              v.jobTimer = 120
+            } else if (v.role === 'builder') {
+              v.job = 'build'
+              v.targetX = v.homeX + (Math.random() - 0.5) * T * 6
+              v.targetY = v.homeY + T * 2 + Math.random() * T * 3
+              v.jobTimer = 160
+            } else if (v.role === 'artisan') {
+              v.job = 'craft'
+              v.targetX = v.homeX
+              v.targetY = v.homeY
+              v.jobTimer = 180
+            }
+          } else if (v.job !== 'idle') {
+            const arrivedJob = moveToward(v, v.targetX, v.targetY, 0.45)
+            if (!arrivedJob) v.frame++
+            if (v.jobTimer <= 0 || arrivedJob) {
+              // Completar tarea -> aportar a la Comarca (sostenible)
+              if (v.job === 'gather') { sh.wood += 1; v.carrying = 1 }
+              else if (v.job === 'haul') { sh.harvest += 1; v.carrying = 1 }
+              else if (v.job === 'build') {
+                // Construir jardín si hay recursos y no se superó el tope
+                if (sh.wood >= 3 && sh.gardens.length < sh.maxGardens) {
+                  sh.wood -= 3
+                  sh.gardens.push({ x: v.targetX, y: v.targetY, growth: 0 })
+                  if (sh.prosperity < sh.prosperityCap) sh.prosperity = Math.min(sh.prosperityCap, sh.prosperity + 2)
+                }
+              } else if (v.job === 'craft') {
+                // Artesano produce un objeto coleccionable de vez en cuando
+                if (sh.harvest >= 2 && Math.random() < 0.5) {
+                  sh.harvest -= 2
+                  const crafted = ['lembas', 'manzana', 'jarron_miel'][Math.floor(Math.random() * 3)]
+                  st.droppedItems.push({ id: crafted, x: v.homeX + (Math.random()-0.5)*T, y: v.homeY + T, frame: 0 } as DroppedItem)
+                  if (sh.prosperity < sh.prosperityCap) sh.prosperity = Math.min(sh.prosperityCap, sh.prosperity + 1)
+                }
+              }
+              v.job = 'idle'
+              v.jobTimer = 120 + Math.random() * 120
+              v.carrying = 0
+            }
+          }
+        } else {
+          // Patrulla normal (festival, amenaza o wanderer)
+          v.patrolTimer--
+          if (v.patrolTimer <= 0) {
+            v.patrolIdx = (v.patrolIdx + 1) % v.patrol.length
+            v.patrolTimer = 80
+          }
+          const target = v.patrol[v.patrolIdx]
+          const arrived = moveToward(v, target.x, target.y, sh.festival.active ? 0.7 : 0.5)
+          if (!arrived) v.frame++
         }
-        const target = v.patrol[v.patrolIdx]
-        const arrived = moveToward(v, target.x, target.y, 0.5)
-        if (!arrived) v.frame++
       }
+    }
+
+    // ============ SIMULACIÓN GLOBAL DE LA COMARCA ============
+    {
+      const sh = st.shire
+      // Crecimiento de jardines
+      for (const g of sh.gardens) {
+        if (g.growth < 100) g.growth = Math.min(100, g.growth + 0.15)
+      }
+      // El tope de prosperidad sube lentamente con jardines maduros (desarrollo sostenible)
+      const matureGardens = sh.gardens.filter(g => g.growth >= 100).length
+      const targetCap = Math.min(100, 60 + matureGardens * 4 + sh.newHoles.filter(h => h.build >= 100).length * 5)
+      sh.prosperityCap += (targetCap - sh.prosperityCap) * 0.01
+      // La prosperidad tiende hacia su tope (cultura próspera pero NO se urbaniza)
+      if (sh.prosperity < sh.prosperityCap) {
+        sh.prosperity = Math.min(sh.prosperityCap, sh.prosperity + 0.01)
+      } else if (sh.prosperity > sh.prosperityCap + 2) {
+        // Pasarse del tope sostenible erosiona el "alma" de la Comarca
+        sh.prosperity -= 0.02
+      }
+
+      // Construcción de nuevos agujeros-hobbit cuando hay madera y prosperidad alta
+      if (sh.wood >= 8 && sh.prosperity > 55 && sh.newHoles.length < sh.maxHoles && st.frameCount % 600 === 0) {
+        sh.wood -= 8
+        const baseHole = HOLES[Math.floor(Math.random() * HOLES.length)]
+        sh.newHoles.push({
+          x: (baseHole.tx + (Math.random() < 0.5 ? -3 : 3)) * T,
+          y: (baseHole.ty + 3) * T,
+          build: 0,
+          size: 0.8 + Math.random() * 0.25,
+        })
+        log('s', 'Los hobbits comienzan a cavar un nuevo agujero.')
+      }
+      for (const nh of sh.newHoles) {
+        if (nh.build < 100) nh.build = Math.min(100, nh.build + 0.08)
+      }
+
+      // — FESTIVALES CULTURALES —
+      sh.cultureTimer++
+      // Hito de prosperidad dispara una fiesta con fuegos artificiales de Gandalf
+      const milestone = Math.floor(sh.prosperity / 25)
+      if (milestone > sh.lastMilestone && !sh.festival.active) {
+        sh.lastMilestone = milestone
+        const names = ['Fiesta de la Cosecha', 'Cumpleaños de Bilbo', 'Festín de Mediodía', 'Gran Celebración']
+        sh.festival = { active: true, timer: 600, name: names[Math.min(milestone - 1, names.length - 1)] }
+        log('s', `¡${sh.festival.name}! La Comarca celebra su prosperidad.`)
+        notify(sh.festival.name, '#ffd24a')
+      }
+      if (sh.festival.active) {
+        sh.festival.timer--
+        // Lanzar fuegos artificiales periódicamente durante la fiesta
+        if (sh.festival.timer % 40 === 0 && sh.fireworks.length < 12) {
+          const fwColors = ['#ff5a5a', '#5aff8a', '#5a9aff', '#ffd24a', '#ff5aff']
+          sh.fireworks.push({
+            x: (40 + Math.random() * 20) * T,
+            y: 30 * T,
+            vy: -3.2 - Math.random() * 1.5,
+            life: 0, maxLife: 60,
+            exploded: false,
+            color: fwColors[Math.floor(Math.random() * fwColors.length)],
+            sparks: [],
+          })
+        }
+        if (sh.festival.timer <= 0) {
+          sh.festival.active = false
+          log('i', 'La fiesta ha terminado. Los hobbits vuelven a sus labores.')
+        }
+      }
+
+      // Física de fuegos artificiales
+      for (const fw of sh.fireworks) {
+        if (!fw.exploded) {
+          fw.y += fw.vy
+          fw.vy += 0.05
+          fw.life++
+          if (fw.vy >= 0 || fw.life > fw.maxLife) {
+            fw.exploded = true
+            for (let i = 0; i < 24; i++) {
+              const a = (i / 24) * Math.PI * 2
+              const sp = 1.5 + Math.random() * 1.5
+              fw.sparks.push({ x: fw.x, y: fw.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 40 })
+            }
+          }
+        } else {
+          for (const s of fw.sparks) {
+            s.x += s.vx; s.y += s.vy; s.vy += 0.04; s.life--
+          }
+          fw.sparks = fw.sparks.filter(s => s.life > 0)
+        }
+      }
+      sh.fireworks = sh.fireworks.filter(fw => !fw.exploded || fw.sparks.length > 0)
     }
 
     // — UPDATE HERO COMPANIONS —
@@ -2813,6 +3082,73 @@ function GameInner() {
       }
     }
 
+    // — Jardines de la Comarca (crecen con el tiempo) —
+    for (const g of st.shire.gardens) {
+      const gx = g.x - sx, gy = g.y - sy
+      if (gx < -40 || gx > canvas.width + 40 || gy < -40 || gy > canvas.height + 40) continue
+      // Parcela de tierra
+      ctx.fillStyle = '#5a4028'
+      ctx.beginPath(); ctx.ellipse(gx, gy, 16, 11, 0, 0, Math.PI * 2); ctx.fill()
+      // Plantas según crecimiento
+      const plants = Math.floor((g.growth / 100) * 5) + 1
+      for (let i = 0; i < plants; i++) {
+        const px = gx - 10 + (i * 5)
+        const ph = 2 + (g.growth / 100) * 8
+        ctx.strokeStyle = '#3a7a2a'; ctx.lineWidth = 2
+        ctx.beginPath(); ctx.moveTo(px, gy + 3); ctx.lineTo(px, gy + 3 - ph); ctx.stroke()
+        if (g.growth > 70) {
+          // Flores/verduras maduras
+          ctx.fillStyle = i % 2 ? '#e25a5a' : '#e2c84a'
+          ctx.beginPath(); ctx.arc(px, gy + 3 - ph, 2.2, 0, Math.PI * 2); ctx.fill()
+        }
+      }
+    }
+
+    // — Nuevos agujeros-hobbit en construcción / terminados —
+    for (const nh of st.shire.newHoles) {
+      const cx = nh.x - sx, groundY = nh.y - sy
+      if (cx < -120 || cx > canvas.width + 120 || groundY < -120 || groundY > canvas.height + 160) continue
+      if (nh.build >= 100) {
+        drawHobbitHole(ctx, cx, groundY, st.frameCount, Math.floor(nh.x / T), nh.size)
+      } else {
+        // Andamio de construcción con barra de progreso
+        const prog = nh.build / 100
+        ctx.fillStyle = 'rgba(90,70,40,0.5)'
+        ctx.beginPath()
+        ctx.ellipse(cx, groundY - 18 * prog, 40 * nh.size, 14 * nh.size, 0, Math.PI, 0, true)
+        ctx.fill()
+        ctx.strokeStyle = '#8a6a40'; ctx.lineWidth = 2
+        for (let i = -1; i <= 1; i++) {
+          ctx.beginPath(); ctx.moveTo(cx + i * 18, groundY); ctx.lineTo(cx + i * 18, groundY - 30 * prog); ctx.stroke()
+        }
+        // Barra de progreso
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(cx - 20, groundY + 4, 40, 4)
+        ctx.fillStyle = '#7ac84a'; ctx.fillRect(cx - 20, groundY + 4, 40 * prog, 4)
+      }
+    }
+
+    // — Fuegos artificiales del festival —
+    for (const fw of st.shire.fireworks) {
+      if (!fw.exploded) {
+        const fx2 = fw.x - sx, fy2 = fw.y - sy
+        ctx.fillStyle = fw.color
+        ctx.beginPath(); ctx.arc(fx2, fy2, 3, 0, Math.PI * 2); ctx.fill()
+        // Estela
+        ctx.fillStyle = 'rgba(255,230,150,0.4)'
+        ctx.beginPath(); ctx.arc(fx2, fy2 + 6, 2, 0, Math.PI * 2); ctx.fill()
+      } else {
+        for (const s of fw.sparks) {
+          const a = s.life / 40
+          ctx.fillStyle = fw.color.replace(')', `,${a})`).replace('#', 'rgba(')
+          // fallback simple si color es hex
+          ctx.globalAlpha = a
+          ctx.fillStyle = fw.color
+          ctx.beginPath(); ctx.arc(s.x - sx, s.y - sy, 2.2, 0, Math.PI * 2); ctx.fill()
+          ctx.globalAlpha = 1
+        }
+      }
+    }
+
     for (const gm of st.groundMarks) {
       ctx.fillStyle = `rgba(20,5,30,${gm.alpha})`
       ctx.beginPath()
@@ -3387,6 +3723,21 @@ function GameInner() {
               </div>
               <div className="text-[#c8a84b] text-xs font-medium">
                 💰 {S.current.p.gold} MC
+              </div>
+              <div className="flex items-center gap-1 justify-end mt-0.5">
+                <span className="text-[#7ac84a] text-[10px]">{S.current.shire.festival.active ? '🎆' : '🌻'}</span>
+                <div className="w-16 h-2 rounded-full bg-[#2a2218] overflow-hidden border border-[rgba(122,200,74,0.2)] relative">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.round(S.current.shire.prosperity)}%`,
+                      background: S.current.shire.prosperity > S.current.shire.prosperityCap ? '#e2a84a' : '#7ac84a',
+                    }}
+                  />
+                  {/* Marca del tope sostenible */}
+                  <div className="absolute top-0 bottom-0 w-px bg-[#e2c84a]" style={{ left: `${Math.round(S.current.shire.prosperityCap)}%` }} />
+                </div>
+                <span className="text-[#7ac84a] text-[9px] tabular-nums">{Math.round(S.current.shire.prosperity)}</span>
               </div>
               <button
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation();
