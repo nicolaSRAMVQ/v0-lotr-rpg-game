@@ -78,10 +78,12 @@ const VILLAGER_DEFS = [
 ]
 
 // ============ HOBBIT HOLES ============
+// doorColor/moundTone dan identidad a cada agujero-hobbit. size escala la estructura pseudo-3D.
+const HOLE_DOOR_COLORS = ['#3a6e2a', '#8a3020', '#2a4a8a', '#b5912a', '#6a2a7a', '#2a7a6a', '#a04820', '#406030']
 const HOLES = [
-  { tx: 15, ty: 22 }, { tx: 25, ty: 18 }, { tx: 38, ty: 24 }, { tx: 50, ty: 20 },
-  { tx: 62, ty: 22 }, { tx: 72, ty: 18 }, { tx: 18, ty: 55 }, { tx: 30, ty: 52 },
-  { tx: 45, ty: 58 }, { tx: 60, ty: 54 }, { tx: 75, ty: 56 }, { tx: 82, ty: 22 },
+  { tx: 15, ty: 22, size: 1.0 }, { tx: 25, ty: 18, size: 1.15 }, { tx: 38, ty: 24, size: 0.95 }, { tx: 50, ty: 20, size: 1.2 },
+  { tx: 62, ty: 22, size: 1.0 }, { tx: 72, ty: 18, size: 1.1 }, { tx: 18, ty: 55, size: 1.05 }, { tx: 30, ty: 52, size: 0.95 },
+  { tx: 45, ty: 58, size: 1.15 }, { tx: 60, ty: 54, size: 1.0 }, { tx: 75, ty: 56, size: 1.1 }, { tx: 82, ty: 22, size: 1.0 },
 ]
 
 // ============ MOD COMMANDS ============
@@ -2492,38 +2494,212 @@ function GameInner() {
         ctx.fillRect(x, y, T, T)
         break
       case 'door':
+        // El umbral de tierra; el agujero-hobbit 3D se dibuja encima en la capa de estructuras
         ctx.fillStyle = '#3a4818'
         ctx.fillRect(x, y, T, T)
-        ctx.fillStyle = '#2a3a10'
-        ctx.beginPath()
-        ctx.arc(x + 16, y + 20, 14, Math.PI, 0, true)
-        ctx.fill()
-        ctx.fillStyle = '#6a5030'
-        ctx.beginPath()
-        ctx.arc(x + 16, y + 20, 10, Math.PI, 0, true)
-        ctx.fill()
-        ctx.fillStyle = '#4a3820'
-        ctx.fillRect(x + 6, y + 10, 20, 22)
-        ctx.fillStyle = '#c8a84b'
-        ctx.beginPath()
-        ctx.arc(x + 22, y + 20, 2, 0, Math.PI * 2)
-        ctx.fill()
+        ctx.fillStyle = '#5a4a2a'
+        ctx.fillRect(x + 8, y + 22, 16, 8)
         break
       case 'mill':
-        ctx.fillStyle = '#7a6040'
+        // Suelo bajo el molino; el molino 3D se dibuja en la capa de estructuras
+        ctx.fillStyle = '#3a4818'
         ctx.fillRect(x, y, T, T)
-        ctx.fillStyle = '#5a4030'
-        ctx.fillRect(x + 8, y, 16, T)
-        ctx.strokeStyle = '#8a7050'
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.moveTo(x + 16, y + 8)
-        ctx.lineTo(x + 16, y - 8)
-        ctx.moveTo(x + 8, y + 16)
-        ctx.lineTo(x + 24, y + 16)
-        ctx.stroke()
         break
     }
+  }, [])
+
+  // ============ PSEUDO-3D STRUCTURES ============
+  // Dibuja un agujero-hobbit como colina abovedada con puerta redonda, ventanas
+  // iluminadas, chimenea con humo animado. cx = centro X en pantalla, groundY = línea de suelo.
+  const drawHobbitHole = useCallback((
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    groundY: number,
+    frame: number,
+    idx: number,
+    size: number
+  ) => {
+    const W = 92 * size
+    const H = 74 * size
+    const doorR = 15 * size
+    const doorCol = HOLE_DOOR_COLORS[idx % HOLE_DOOR_COLORS.length]
+
+    ctx.save()
+
+    // Sombra proyectada en el suelo
+    ctx.fillStyle = 'rgba(0,0,0,0.30)'
+    ctx.beginPath()
+    ctx.ellipse(cx + 6 * size, groundY + 2, W * 0.55, 12 * size, 0, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Colina/montículo cubierto de césped (domo) con degradado para volumen
+    const topY = groundY - H
+    const grad = ctx.createRadialGradient(cx - W * 0.2, topY + H * 0.3, 6, cx, topY + H * 0.5, W * 0.8)
+    grad.addColorStop(0, '#4a6e2a')
+    grad.addColorStop(0.55, '#36531e')
+    grad.addColorStop(1, '#243814')
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.moveTo(cx - W / 2, groundY)
+    ctx.quadraticCurveTo(cx - W / 2, topY, cx, topY)
+    ctx.quadraticCurveTo(cx + W / 2, topY, cx + W / 2, groundY)
+    ctx.closePath()
+    ctx.fill()
+
+    // Mechones de césped (textura)
+    ctx.fillStyle = 'rgba(70,110,42,0.55)'
+    for (let i = 0; i < 5; i++) {
+      const gx = cx - W * 0.35 + (i * W * 0.18)
+      const gy = topY + 10 * size + (i % 2) * 8 * size
+      ctx.beginPath()
+      ctx.arc(gx, gy, 5 * size, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    // Marco de piedra de la puerta (retranqueo)
+    ctx.fillStyle = '#9a8a6a'
+    ctx.beginPath()
+    ctx.arc(cx, groundY - doorR - 4 * size, doorR + 4 * size, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#7a6a4a'
+    ctx.fillRect(cx - doorR - 4 * size, groundY - doorR, (doorR + 4 * size) * 2, doorR)
+
+    // Puerta redonda de madera
+    const doorCy = groundY - doorR - 2 * size
+    ctx.fillStyle = doorCol
+    ctx.beginPath()
+    ctx.arc(cx, doorCy, doorR, 0, Math.PI * 2)
+    ctx.fill()
+    // Tablones verticales
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)'
+    ctx.lineWidth = 1
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath()
+      ctx.moveTo(cx + i * 5 * size, doorCy - doorR + 3)
+      ctx.lineTo(cx + i * 5 * size, doorCy + doorR - 3)
+      ctx.stroke()
+    }
+    // Pomo de latón centrado (icónico)
+    ctx.fillStyle = '#e8c860'
+    ctx.beginPath()
+    ctx.arc(cx, doorCy, 2.4 * size, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Ventanas redondas iluminadas con parpadeo cálido
+    const flick = 0.55 + 0.25 * Math.sin(frame * 0.08 + idx * 1.7)
+    const winR = 7 * size
+    for (const wx of [cx - W * 0.32, cx + W * 0.32]) {
+      const wy = groundY - H * 0.42
+      ctx.fillStyle = '#5a4a2a'
+      ctx.beginPath(); ctx.arc(wx, wy, winR + 2 * size, 0, Math.PI * 2); ctx.fill()
+      ctx.fillStyle = `rgba(255,210,120,${flick})`
+      ctx.beginPath(); ctx.arc(wx, wy, winR, 0, Math.PI * 2); ctx.fill()
+      // Crucetas
+      ctx.strokeStyle = '#5a4a2a'; ctx.lineWidth = 1.2 * size
+      ctx.beginPath()
+      ctx.moveTo(wx - winR, wy); ctx.lineTo(wx + winR, wy)
+      ctx.moveTo(wx, wy - winR); ctx.lineTo(wx, wy + winR)
+      ctx.stroke()
+    }
+
+    // Chimenea de piedra en lo alto del montículo
+    const chX = cx + W * 0.22
+    const chY = topY + 6 * size
+    ctx.fillStyle = '#8a7a64'
+    ctx.fillRect(chX, chY - 14 * size, 9 * size, 16 * size)
+    ctx.fillStyle = '#6a5a44'
+    ctx.fillRect(chX - 2 * size, chY - 16 * size, 13 * size, 4 * size)
+
+    // Humo animado que asciende y se desvanece
+    for (let i = 0; i < 4; i++) {
+      const prog = ((frame * 0.6 + i * 22) % 80) / 80
+      const sx2 = chX + 4 * size + Math.sin(frame * 0.05 + i) * 6 * size
+      const sy2 = chY - 16 * size - prog * 46 * size
+      ctx.fillStyle = `rgba(220,220,210,${(1 - prog) * 0.4})`
+      ctx.beginPath()
+      ctx.arc(sx2, sy2, (2 + prog * 5) * size, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    ctx.restore()
+  }, [])
+
+  // Molino de la Comarca con aspas giratorias
+  const drawMill = useCallback((
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    groundY: number,
+    frame: number
+  ) => {
+    ctx.save()
+    const W = 46, H = 88
+    const topY = groundY - H
+
+    // Sombra
+    ctx.fillStyle = 'rgba(0,0,0,0.30)'
+    ctx.beginPath()
+    ctx.ellipse(cx + 6, groundY + 2, W * 0.7, 12, 0, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Torre cónica de piedra con degradado
+    const grad = ctx.createLinearGradient(cx - W / 2, 0, cx + W / 2, 0)
+    grad.addColorStop(0, '#9a8a72')
+    grad.addColorStop(0.5, '#b6a888')
+    grad.addColorStop(1, '#7a6c56')
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.moveTo(cx - W / 2, groundY)
+    ctx.lineTo(cx - W / 3, topY + 16)
+    ctx.lineTo(cx + W / 3, topY + 16)
+    ctx.lineTo(cx + W / 2, groundY)
+    ctx.closePath()
+    ctx.fill()
+
+    // Hiladas de piedra
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)'
+    ctx.lineWidth = 1
+    for (let i = 1; i < 4; i++) {
+      const yy = groundY - (H - 16) * (i / 4)
+      ctx.beginPath(); ctx.moveTo(cx - W / 2 + i * 2, yy); ctx.lineTo(cx + W / 2 - i * 2, yy); ctx.stroke()
+    }
+
+    // Puerta y ventana
+    ctx.fillStyle = '#4a3820'
+    ctx.fillRect(cx - 7, groundY - 22, 14, 22)
+    ctx.fillStyle = '#ffd27a'
+    ctx.fillRect(cx - 5, groundY - 44, 10, 10)
+
+    // Techo cónico
+    ctx.fillStyle = '#5a3a22'
+    ctx.beginPath()
+    ctx.moveTo(cx - W / 3 - 4, topY + 16)
+    ctx.lineTo(cx, topY - 10)
+    ctx.lineTo(cx + W / 3 + 4, topY + 16)
+    ctx.closePath()
+    ctx.fill()
+
+    // Aspas giratorias del molino
+    const bladeCy = topY + 16
+    const rot = frame * 0.04
+    ctx.strokeStyle = '#3a2a18'
+    ctx.lineWidth = 3
+    for (let i = 0; i < 4; i++) {
+      const a = rot + (i * Math.PI) / 2
+      const ex = cx + Math.cos(a) * 30
+      const ey = bladeCy + Math.sin(a) * 30
+      ctx.beginPath(); ctx.moveTo(cx, bladeCy); ctx.lineTo(ex, ey); ctx.stroke()
+      // Vela de tela
+      ctx.fillStyle = 'rgba(230,225,205,0.85)'
+      ctx.save()
+      ctx.translate(cx, bladeCy)
+      ctx.rotate(a)
+      ctx.fillRect(8, -4, 22, 8)
+      ctx.restore()
+    }
+    ctx.fillStyle = '#2a1c10'
+    ctx.beginPath(); ctx.arc(cx, bladeCy, 4, 0, Math.PI * 2); ctx.fill()
+
+    ctx.restore()
   }, [])
 
   const drawMinimap = useCallback(() => {
@@ -2619,6 +2795,21 @@ function GameInner() {
     for (let ty = startTY; ty < endTY; ty++) {
       for (let tx = startTX; tx < endTX; tx++) {
         drawTile(ctx, tx, ty, st.map[ty][tx], sx, sy)
+      }
+    }
+
+    // Capa de estructuras pseudo-3D (agujeros-hobbit y molino) sobre el suelo
+    for (const h of HOLES) {
+      const cx = h.tx * T - sx + T / 2
+      const groundY = (h.ty + 1) * T - sy
+      if (cx < -120 || cx > canvas.width + 120 || groundY < -120 || groundY > canvas.height + 160) continue
+      drawHobbitHole(ctx, cx, groundY, st.frameCount, HOLES.indexOf(h), h.size)
+    }
+    {
+      const millCx = 45 * T - sx + T / 2
+      const millGroundY = (31 + 1) * T - sy
+      if (millCx > -120 && millCx < canvas.width + 120 && millGroundY > -120 && millGroundY < canvas.height + 200) {
+        drawMill(ctx, millCx, millGroundY, st.frameCount)
       }
     }
 
