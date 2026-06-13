@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { useGameStats } from '@/hooks/useGameStats'
+import { useSearchParams } from 'next/navigation'
 
 // ============ CONSTANTS ============
 const T = 32
@@ -25,7 +27,12 @@ const WEAPONS: Record<string, { main: { icon: string; label: string; dmgMult: nu
   gimli:   { main: { icon: '🪓', label: 'Hacha',     dmgMult: 1.0, rangeMult: 1.0 }, secondary: { icon: '🔪', label: 'Cuchillo',  dmgMult: 0.6, rangeMult: 0.7 } },
 }
 
-const ITEMS: Record<string, { icon: string; desc: string; type?: string; dmgBonus?: number; defBonus?: number; spdBonus?: number; healHp?: number; effect?: string; duration?: number; spellFor?: string[] }> = {
+// ============ DIFFICULTY LEVELS ============
+const DIFFICULTIES = {
+  easy:   { name: 'Fácil', hpMult: 1.2, enemyDmgMult: 0.8, enemyCount: 1, icon: '🟢' },
+  normal: { name: 'Normal', hpMult: 1.0, enemyDmgMult: 1.0, enemyCount: 1, icon: '🟡' },
+  hard:   { name: 'Difícil', hpMult: 0.85, enemyDmgMult: 1.3, enemyCount: 2, icon: '🔴' },
+}
   // Consumibles
   lembas:       { icon: '🍞', desc: 'Pan élfico. +3 HP.', type: 'consumable', healHp: 3 },
   miruvor:      { icon: '🧴', desc: 'Cordial élfico. HP completo.', type: 'consumable', healHp: 999 },
@@ -329,16 +336,11 @@ const XP_TABLE = [0, 50, 120, 220, 360, 550, 800, 1120, 1520, 2020]
 const XP_REWARDS = { nazgul: 30, villager_saved: 10 }
 
 export default function GamePage() {
-  const rootRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const minimapRef = useRef<HTMLCanvasElement>(null)
-  const S = useRef<GameState | null>(null)
-  const animRef = useRef<number>(0)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const logRef = useRef<HTMLDivElement>(null)
-
-  const [screen, setScreen] = useState<'charsel' | 'game' | 'dead' | 'gameover' | 'win'>('charsel')
+  const searchParams = useSearchParams()
+  const { stats, addWave, addDeath, addPlayTime } = useGameStats()
+  const [screen, setScreen] = useState<'charsel' | 'game' | 'dead' | 'gameover' | 'win' | 'diffsel'>('charsel')
   const [selectedChar, setSelectedChar] = useState<string | null>(null)
+  const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>('normal')
   const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
   const [, forceUpdate] = useState(0)
   const [isCompact, setIsCompact] = useState(false)
@@ -348,6 +350,15 @@ export default function GamePage() {
   const [sfxEnabled, setSfxEnabled] = useState(true)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
+
+  // Detectar parámetro char del URL (viene del landing)
+  useEffect(() => {
+    const charParam = searchParams.get('char')
+    if (charParam && Object.keys(CHARS).includes(charParam)) {
+      setSelectedChar(charParam)
+      setScreen('diffsel')
+    }
+  }, [searchParams])
 
   // Iniciar reproducción de música lofi
   const startLofiMusic = useCallback(() => {
@@ -3653,6 +3664,47 @@ export default function GamePage() {
               COMENZAR
             </button>
           )}
+        </div>
+      )}
+
+      {screen === 'diffsel' && selectedChar && (
+        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] flex flex-col items-center justify-center p-4">
+          <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
+            DIFICULTAD
+          </h1>
+          <p className="text-[#6a5a3a] text-sm mb-8">Elige tu desafío</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-2xl mb-8">
+            {(['easy', 'normal', 'hard'] as const).map(level => {
+              const diff = DIFFICULTIES[level]
+              return (
+                <button
+                  key={level}
+                  onClick={() => setDifficulty(level)}
+                  className={`p-6 rounded-lg border-2 transition-all ${
+                    difficulty === level
+                      ? 'border-[#c8a84b] bg-[rgba(200,168,75,0.2)]'
+                      : 'border-[rgba(200,168,75,0.3)] hover:border-[rgba(200,168,75,0.5)]'
+                  }`}
+                >
+                  <div className="text-4xl mb-3">{diff.icon}</div>
+                  <div className="text-[#c8a84b] font-bold mb-2">{diff.name}</div>
+                  <div className="text-[#a0956b] text-xs space-y-1">
+                    <div>HP: x{diff.hpMult}</div>
+                    <div>Daño enemigo: x{diff.enemyDmgMult}</div>
+                    {diff.enemyCount > 1 && <div>+{diff.enemyCount-1} Nazgul/ola</div>}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          <button
+            onClick={() => startGame(selectedChar, selectedMode)}
+            className="px-8 py-3 bg-[#c8a84b] text-[#1a1408] font-bold rounded-lg hover:bg-[#d8b85b] transition-colors"
+          >
+            COMENZAR AVENTURA
+          </button>
         </div>
       )}
 
