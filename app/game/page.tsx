@@ -272,6 +272,22 @@ const ENEMY_DEFS: Record<EnemyKind, {
   wight:  { name: 'Tumulario', color: '#2a3038', accent: '#aaccdd', hp: 7, spd: 0.6, dmg: 2, size: 1.0 },
 }
 
+// ============ MISIÓN PRINCIPAL: EL VIAJE A RIVENDEL ============
+const QUEST_TEXTS = [
+  'Viaja al este: llega al Bosque Cerrado',
+  'Cruza el Bosque Cerrado hacia el este',
+  'Encuentra a Elrond en la Última Casa',
+  'Bendición de Elrond recibida',
+]
+
+// Posiciones de los elfos de Rivendel (solo visibles en esa región)
+const ELROND_POS = { x: 50 * 32, y: 35 * 32 }
+const RIVENDELL_ELVES = [
+  { name: 'Lindir', x: 44 * 32, y: 36 * 32, robe: '#7a8ab0' },
+  { name: 'Erestor', x: 56 * 32, y: 36 * 32, robe: '#8a7ab0' },
+  { name: 'Glorfindel', x: 47 * 32, y: 24 * 32, robe: '#c8b878' },
+]
+
 interface HeroCompanion {
   char: string
   x: number
@@ -413,6 +429,7 @@ interface GameState {
   shire: ShireState
   region: RegionId
   regionTransition: { active: boolean; to: RegionId | null; progress: number; phase: 'out' | 'in' }
+  quest: { stage: number }
 }
 
 const SOLID = new Set<TileType>(['tree', 'mill', 'darktree', 'pine', 'water', 'rock', 'rivwater', 'cliff', 'arch'])
@@ -989,6 +1006,7 @@ function GameInner() {
       },
       region: 'comarca',
       regionTransition: { active: false, to: null, progress: 0, phase: 'out' },
+      quest: { stage: 0 },
     }
 
     if (mode === 'exploration') {
@@ -1186,6 +1204,32 @@ function GameInner() {
     forceUpdate(n => n + 1)
   }, [log])
 
+  const openElrondDlg = useCallback(() => {
+    if (!S.current || !S.current.p) return
+    const pName = CHARS[S.current.p.char].name
+    if (S.current.quest.stage < 3) {
+      log('e', `ELROND: Bienvenido a Imladris, ${pName}.`)
+      log('e', `ELROND: Has cruzado tierras oscuras para llegar hasta aquí.`)
+      S.current.dlg = {
+        active: true, speaker: 'ELROND', lines: [], lineIdx: 0,
+        opts: [
+          { l: 'Recibir la bendición de Elrond', action: 'elrond_blessing' },
+          { l: 'Todavía no, señor.', action: 'close' },
+        ],
+      }
+    } else {
+      log('e', `ELROND: Descansa, ${pName}. Imladris siempre te recibirá.`)
+      S.current.dlg = {
+        active: true, speaker: 'ELROND', lines: [], lineIdx: 0,
+        opts: [
+          { l: 'Curar heridas', action: 'elrond_heal' },
+          { l: 'Adiós', action: 'close' },
+        ],
+      }
+    }
+    forceUpdate(n => n + 1)
+  }, [log])
+
   const advanceDlg = useCallback(() => {
     if (!S.current || !S.current.dlg.active) return
     const dlg = S.current.dlg
@@ -1199,6 +1243,23 @@ function GameInner() {
     if (!S.current) return
     const dlg = S.current.dlg
     if (opt.action === 'close') {
+      dlg.active = false
+    } else if (opt.action === 'elrond_blessing') {
+      const p = S.current.p!
+      S.current.quest.stage = 3
+      p.maxhp += 5
+      p.hp = p.maxhp
+      p.gold += 100
+      log('s', 'ELROND: Que la luz de Eärendil te acompañe.')
+      log('s', '✦ BENDICIÓN DE ELROND: +5 HP máx, curación total y 100 MC ✦')
+      notify('✦ MISIÓN CUMPLIDA ✦', '#c8b878')
+      playSfx('heal')
+      dlg.active = false
+    } else if (opt.action === 'elrond_heal') {
+      const p = S.current.p!
+      p.hp = p.maxhp
+      log('s', 'ELROND: Tus heridas han sanado.')
+      notify('✦ Curación total ✦', '#c8b878')
       dlg.active = false
     } else if (opt.action && opt.action.startsWith('hero_follow_')) {
       const charKey = opt.action.replace('hero_follow_', '')
@@ -1716,7 +1777,7 @@ function GameInner() {
     const p = S.current.p
 
     // Detectar merchant cercano
-    for (const m of S.current.merchants) {
+    if (S.current.region === 'comarca') for (const m of S.current.merchants) {
       const dx = m.x - p.x, dy = m.y - p.y
       if (Math.sqrt(dx*dx + dy*dy) < 2.5 * T) {
         S.current.activeMerchant = m.id
@@ -1753,7 +1814,16 @@ function GameInner() {
       }
     }
 
-    for (const v of S.current.villagers) {
+    // Elrond en Rivendel
+    if (S.current.region === 'rivendell') {
+      const ex = ELROND_POS.x - p.x, ey = ELROND_POS.y - p.y
+      if (Math.sqrt(ex * ex + ey * ey) < 2.5 * T) {
+        openElrondDlg()
+        return
+      }
+    }
+
+    if (S.current.region === 'comarca') for (const v of S.current.villagers) {
       if (v.state === 'captured') continue
       const dx = v.x - p.x, dy = v.y - p.y
       const dist = Math.sqrt(dx * dx + dy * dy)
@@ -1762,7 +1832,7 @@ function GameInner() {
         return
       }
     }
-  }, [openGandalfDlg, openVillagerDlg])
+  }, [openGandalfDlg, openVillagerDlg, openElrondDlg])
 
   const pickupNearbyItem = useCallback(() => {
     if (!S.current?.p) return
@@ -1841,6 +1911,15 @@ function GameInner() {
           const rd = REGIONS[dest]
           log('s', `Has llegado a ${rd.name} — ${rd.subtitle}.`)
           notify(rd.name, '#e2c84a')
+          // Avance de la misión principal
+          if (dest === 'bosque' && st.quest.stage === 0) {
+            st.quest.stage = 1
+            log('m', `MISIÓN: ${QUEST_TEXTS[1]}`)
+          } else if (dest === 'rivendell' && st.quest.stage <= 1) {
+            st.quest.stage = 2
+            log('m', `MISIÓN: ${QUEST_TEXTS[2]}`)
+            notify('✦ Busca a Elrond ✦', '#c8b878')
+          }
         }
         return  // congelar gameplay durante el fundido de salida
       } else {
@@ -1986,7 +2065,7 @@ function GameInner() {
     }
 
     const naz = st.nazgul
-    for (const v of st.villagers) {
+    if (st.region === 'comarca') for (const v of st.villagers) {
       if (v.state === 'captured') continue
 
       if (naz && naz.hp > 0 && naz.state !== 'dying') {
@@ -2154,7 +2233,7 @@ function GameInner() {
         }
       }
 
-      // Física de fuegos artificiales
+      // F��sica de fuegos artificiales
       for (const fw of sh.fireworks) {
         if (!fw.exploded) {
           fw.y += fw.vy
@@ -3597,7 +3676,7 @@ function GameInner() {
     }
     ctx.globalAlpha = 1
 
-    for (const v of st.villagers) {
+    if (st.region === 'comarca') for (const v of st.villagers) {
       if (v.state === 'captured') {
         ctx.strokeStyle = '#8a2020'
         ctx.lineWidth = 2
@@ -3615,7 +3694,7 @@ function GameInner() {
       }
     }
 
-    for (const v of st.villagers) {
+    if (st.region === 'comarca') for (const v of st.villagers) {
       if (v.state === 'captured') continue
       const vx = v.x - sx, vy = v.y - sy
       drawSprite(ctx, 'villager', v.dir, v.frame, vx, vy, 1.8, v.color)
@@ -3779,8 +3858,55 @@ function GameInner() {
       }
     }
 
+    // ============ ELFOS DE RIVENDEL ============
+    if (st.region === 'rivendell') {
+      const drawElf = (ex: number, ey: number, robe: string, name: string, tall: boolean) => {
+        const zx = ex - sx, zy = ey - sy
+        if (zx < -40 || zx > canvas.width + 40 || zy < -40 || zy > canvas.height + 40) return
+        const sway = Math.sin(st.frameCount * 0.04 + ex) * 1.5
+        // Túnica
+        ctx.fillStyle = robe
+        ctx.beginPath()
+        ctx.moveTo(zx - 9, zy + 18)
+        ctx.quadraticCurveTo(zx - 10, zy - 8, zx, zy - (tall ? 16 : 12))
+        ctx.quadraticCurveTo(zx + 10, zy - 8, zx + 9, zy + 18)
+        ctx.closePath(); ctx.fill()
+        // Cabeza
+        ctx.fillStyle = '#e8d4b8'
+        ctx.beginPath(); ctx.arc(zx, zy - (tall ? 20 : 16), 6, 0, Math.PI * 2); ctx.fill()
+        // Cabello largo
+        ctx.fillStyle = tall ? '#3a2e22' : '#c8b888'
+        ctx.beginPath(); ctx.arc(zx, zy - (tall ? 22 : 18), 6, Math.PI * 0.9, Math.PI * 2.1); ctx.fill()
+        ctx.fillRect(zx - 6, zy - (tall ? 22 : 18), 2.5, 14)
+        ctx.fillRect(zx + 3.5, zy - (tall ? 22 : 18), 2.5, 14)
+        // Diadema de Elrond
+        if (tall) {
+          ctx.strokeStyle = '#e2c84a'; ctx.lineWidth = 1.5
+          ctx.beginPath(); ctx.arc(zx, zy - 21, 6, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke()
+        }
+        // Brillo élfico sutil
+        ctx.fillStyle = 'rgba(200,220,255,0.08)'
+        ctx.beginPath(); ctx.arc(zx, zy - 6 + sway, 16, 0, Math.PI * 2); ctx.fill()
+        // Nombre
+        ctx.font = 'bold 8px monospace'
+        ctx.fillStyle = tall ? '#e2c84a' : '#aac4dd'
+        ctx.textAlign = 'center'
+        ctx.fillText(name.toUpperCase(), zx, zy + 30)
+      }
+      for (const elf of RIVENDELL_ELVES) drawElf(elf.x, elf.y, elf.robe, elf.name, false)
+      drawElf(ELROND_POS.x, ELROND_POS.y, '#5a4a78', 'Elrond', true)
+      // Indicador de misión sobre Elrond
+      if (st.quest.stage === 2) {
+        const qx = ELROND_POS.x - sx, qy = ELROND_POS.y - sy - 38 + Math.sin(st.frameCount * 0.1) * 3
+        ctx.font = 'bold 16px monospace'
+        ctx.fillStyle = '#e2c84a'
+        ctx.textAlign = 'center'
+        ctx.fillText('!', qx, qy)
+      }
+    }
+
     // Render merchants
-    if (st.merchants && st.merchants.length > 0) {
+    if (st.region === 'comarca' && st.merchants && st.merchants.length > 0) {
       for (const m of st.merchants) {
         const mx = m.x - sx, my = m.y - sy
         const shop = SHOPS[m.id]
@@ -3946,6 +4072,21 @@ function GameInner() {
     if (rdef.ambientTint) {
       ctx.fillStyle = rdef.ambientTint
       ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
+
+    // Tracker de misión principal (banda superior central)
+    if (st.gameMode === 'exploration' && st.quest.stage < 3) {
+      const qText = QUEST_TEXTS[st.quest.stage]
+      ctx.font = 'bold 9px monospace'
+      const tw = ctx.measureText(qText).width
+      const bx = canvas.width / 2, by = 12
+      ctx.fillStyle = 'rgba(10,14,8,0.72)'
+      ctx.fillRect(bx - tw / 2 - 10, by - 9, tw + 20, 18)
+      ctx.strokeStyle = 'rgba(226,200,74,0.5)'; ctx.lineWidth = 1
+      ctx.strokeRect(bx - tw / 2 - 10, by - 9, tw + 20, 18)
+      ctx.fillStyle = '#e2c84a'
+      ctx.textAlign = 'center'
+      ctx.fillText(qText, bx, by + 3)
     }
 
     // Fundido a negro durante la transición entre regiones
@@ -4723,6 +4864,33 @@ function GameInner() {
               )
             })}
           </div>
+
+          <div className="flex gap-3 mb-4">
+            <button
+              onClick={() => setSelectedMode('exploration')}
+              className={`px-4 py-2 rounded-lg border transition-all text-sm ${selectedMode === 'exploration'
+                ? 'border-[#5a8a3a] bg-[rgba(90,138,58,0.2)] text-[#8aaa6e]'
+                : 'border-[rgba(90,138,58,0.3)] text-[#5a6a3a] hover:border-[rgba(90,138,58,0.5)]'
+              }`}
+            >
+              Exploración
+            </button>
+            <button
+              onClick={() => setSelectedMode('horde')}
+              className={`px-4 py-2 rounded-lg border transition-all text-sm ${selectedMode === 'horde'
+                ? 'border-[#e24b4a] bg-[rgba(226,75,74,0.2)] text-[#e24b4a]'
+                : 'border-[rgba(226,75,74,0.3)] text-[#8a4040] hover:border-[rgba(226,75,74,0.5)]'
+              }`}
+            >
+              Horda
+            </button>
+          </div>
+          <p className="text-[#5a6a3a] text-[10px] mb-4 text-center max-w-xs">
+            {selectedMode === 'exploration'
+              ? 'Viaja por la Tierra Media y lleva el Anillo a Rivendel.'
+              : 'Sobrevive 10 oleadas de Nazgûl. Protege a los aldeanos.'
+            }
+          </p>
 
           <button
             onClick={() => startGame(selectedChar, selectedMode)}
