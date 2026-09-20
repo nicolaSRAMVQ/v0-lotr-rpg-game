@@ -287,6 +287,16 @@ const RIVENDELL_ELVES = [
   { name: 'Erestor', x: 56 * 32, y: 36 * 32, robe: '#8a7ab0' },
   { name: 'Glorfindel', x: 47 * 32, y: 24 * 32, robe: '#c8b878' },
 ]
+// El Concilio de Elrond: mesa redonda al sur de Elrond
+const COUNCIL_POS = { x: 50 * 32, y: 44 * 32 }
+const COUNCIL_MEMBERS = [
+  { key: 'gandalf', name: 'Gandalf', robe: '#8a8a8a', hair: '#e8e8e8' },
+  { key: 'aragorn', name: 'Aragorn', robe: '#4a5a3a', hair: '#2a2018' },
+  { key: 'boromir', name: 'Boromir', robe: '#7a6a3a', hair: '#8a7a4a' },
+  { key: 'legolas', name: 'Legolas', robe: '#3a5a4a', hair: '#d8c888' },
+  { key: 'gimli',   name: 'Gimli',   robe: '#7a3a2a', hair: '#b05028' },
+  { key: 'frodo',   name: 'Frodo',   robe: '#5a6a4a', hair: '#6a4a2a' },
+]
 
 interface HeroCompanion {
   char: string
@@ -400,6 +410,7 @@ interface GameState {
   nazgulList: Nazgul[]
   gandalfAlly: GandalfAlly | null
   heroCompanions: HeroCompanion[]
+  councilDone: boolean
   invNaz: boolean
   invTimer: number
   invWarned: boolean
@@ -959,6 +970,7 @@ function GameInner() {
       nazgulList: [],
       gandalfAlly: spawnGandalfAlly(),
       heroCompanions: spawnHeroCompanions(charKey),
+      councilDone: false,
       invNaz: false,
       invTimer: mode === 'exploration' ? 999999 : 360,
       invWarned: false,
@@ -1230,6 +1242,34 @@ function GameInner() {
     forceUpdate(n => n + 1)
   }, [log])
 
+  const openCouncilDlg = useCallback(() => {
+    if (!S.current || !S.current.p) return
+    const st = S.current
+    const pName = CHARS[st.p.char].name
+    if (!st.councilDone) {
+      log('e', 'ELROND: El Concilio ha comenzado. El Anillo no puede ocultarse más.')
+      log('e', `ELROND: ${pName}, la sombra crece. ¿Cuál es tu voluntad?`)
+      st.dlg = {
+        active: true, speaker: 'EL CONCILIO', lines: [], lineIdx: 0,
+        opts: [
+          { l: 'Yo llevaré el Anillo a Mordor.', action: 'council_volunteer' },
+          { l: 'Que la Compañía marche unida.', action: 'council_fellowship' },
+          { l: 'Escuchar el debate.', action: 'council_listen' },
+        ],
+      }
+    } else {
+      log('e', 'La Compañía del Anillo aguarda junto a la mesa redonda.')
+      st.dlg = {
+        active: true, speaker: 'EL CONCILIO', lines: [], lineIdx: 0,
+        opts: [
+          { l: 'Descansar con la Compañía', action: 'council_heal' },
+          { l: 'Partir', action: 'close' },
+        ],
+      }
+    }
+    forceUpdate(n => n + 1)
+  }, [log])
+
   const advanceDlg = useCallback(() => {
     if (!S.current || !S.current.dlg.active) return
     const dlg = S.current.dlg
@@ -1260,6 +1300,40 @@ function GameInner() {
       p.hp = p.maxhp
       log('s', 'ELROND: Tus heridas han sanado.')
       notify('✦ Curación total ✦', '#c8b878')
+      dlg.active = false
+    } else if (opt.action === 'council_volunteer') {
+      const p = S.current.p!
+      S.current.councilDone = true
+      p.maxhp += 5; p.hp = p.maxhp
+      p.gold += 50
+      log('s', 'ELROND: En verdad tienes el valor de los Grandes, aun siendo pequeño.')
+      log('s', '✦ VALOR DEL PORTADOR: +5 HP máx, curación total y 50 MC ✦')
+      notify('✦ Valor del Portador ✦', '#e2c84a')
+      playSfx('heal')
+      dlg.active = false
+    } else if (opt.action === 'council_fellowship') {
+      const p = S.current.p!
+      S.current.councilDone = true
+      p.dmg += 2
+      log('s', 'GANDALF: Entonces la Compañía marchará unida, pase lo que pase.')
+      log('s', '✦ FUERZA DE LA COMPAÑÍA: +2 de daño permanente ✦')
+      notify('✦ La Compañía del Anillo ✦', '#c8b878')
+      playSfx('heal')
+      dlg.active = false
+    } else if (opt.action === 'council_listen') {
+      const p = S.current.p!
+      S.current.councilDone = true
+      p.gold += 30
+      log('e', 'BOROMIR: ¿Por qué no usar el Anillo contra el propio Enemigo?')
+      log('e', 'ELROND: No podemos usarlo. Su único señor es Sauron.')
+      log('e', 'ARAGORN: Confiaré mi espada a quien lleve el Anillo.')
+      log('s', '✦ Has aprendido la historia del Anillo Único (+30 MC) ✦')
+      dlg.active = false
+    } else if (opt.action === 'council_heal') {
+      const p = S.current.p!
+      p.hp = p.maxhp
+      log('s', 'La Compañía comparte pan élfico. Tus heridas sanan.')
+      notify('✦ Descanso en Imladris ✦', '#c8b878')
       dlg.active = false
     } else if (opt.action && opt.action.startsWith('hero_follow_')) {
       const charKey = opt.action.replace('hero_follow_', '')
@@ -1786,8 +1860,8 @@ function GameInner() {
       }
     }
 
-    // Detectar hero companion cercano
-    for (const hero of S.current.heroCompanions) {
+    // Detectar hero companion cercano (solo en la Comarca)
+    if (S.current.region === 'comarca') for (const hero of S.current.heroCompanions) {
       const dx = hero.x - p.x, dy = hero.y - p.y
       if (Math.sqrt(dx*dx+dy*dy) < 2.5 * T) {
         const heroName = CHARS[hero.char].name
@@ -1814,8 +1888,13 @@ function GameInner() {
       }
     }
 
-    // Elrond en Rivendel
+    // Elrond y el Concilio en Rivendel
     if (S.current.region === 'rivendell') {
+      const cdx = COUNCIL_POS.x - p.x, cdy = COUNCIL_POS.y - p.y
+      if (Math.sqrt(cdx * cdx + cdy * cdy) < 3.5 * T) {
+        openCouncilDlg()
+        return
+      }
       const ex = ELROND_POS.x - p.x, ey = ELROND_POS.y - p.y
       if (Math.sqrt(ex * ex + ey * ey) < 2.5 * T) {
         openElrondDlg()
@@ -1832,7 +1911,7 @@ function GameInner() {
         return
       }
     }
-  }, [openGandalfDlg, openVillagerDlg, openElrondDlg])
+  }, [openGandalfDlg, openVillagerDlg, openElrondDlg, openCouncilDlg])
 
   const pickupNearbyItem = useCallback(() => {
     if (!S.current?.p) return
@@ -2274,7 +2353,7 @@ function GameInner() {
     ]
     const claimedTargets = new Set<object>()
 
-    for (const hero of st.heroCompanions) {
+    if (st.region === 'comarca') for (const hero of st.heroCompanions) {
       if (hero.attackCooldown > 0) hero.attackCooldown--
       const hpdx = p.x - hero.x, hpdy = p.y - hero.y
       const hpDist = Math.sqrt(hpdx*hpdx + hpdy*hpdy)
@@ -3721,8 +3800,8 @@ function GameInner() {
       ctx.fillText(v.name, vx, vy + 20)
     }
 
-    // Render hero companions
-    for (const hero of st.heroCompanions) {
+    // Render hero companions (solo en la Comarca; en Rivendel aparecen en el Concilio)
+    if (st.region === 'comarca') for (const hero of st.heroCompanions) {
       const hx = hero.x - sx, hy = hero.y - sy
       drawSprite(ctx, hero.char, hero.dir, hero.frame, hx, hy, 2, undefined, hero.weaponSlot)
       ctx.font = 'bold 7px monospace'
@@ -3895,6 +3974,71 @@ function GameInner() {
       }
       for (const elf of RIVENDELL_ELVES) drawElf(elf.x, elf.y, elf.robe, elf.name, false)
       drawElf(ELROND_POS.x, ELROND_POS.y, '#5a4a78', 'Elrond', true)
+
+      // —— El Concilio de Elrond: mesa redonda con la Compañía sentada ——
+      {
+        const cx = COUNCIL_POS.x - sx, cy = COUNCIL_POS.y - sy
+        if (cx > -140 && cx < canvas.width + 140 && cy > -140 && cy < canvas.height + 140) {
+          // Sombra y mesa de piedra
+          ctx.fillStyle = 'rgba(0,0,0,0.25)'
+          ctx.beginPath(); ctx.ellipse(cx, cy + 6, 76, 40, 0, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = '#6a5a44'
+          ctx.beginPath(); ctx.ellipse(cx, cy, 70, 34, 0, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = '#7c6a50'
+          ctx.beginPath(); ctx.ellipse(cx, cy - 3, 62, 28, 0, 0, Math.PI * 2); ctx.fill()
+          // Pedestal y el Anillo brillando en el centro
+          ctx.fillStyle = '#3a2e22'
+          ctx.beginPath(); ctx.ellipse(cx, cy - 3, 12, 6, 0, 0, Math.PI * 2); ctx.fill()
+          const gl = 0.45 + 0.35 * Math.sin(st.frameCount * 0.12)
+          ctx.fillStyle = `rgba(232,200,90,${gl * 0.3})`
+          ctx.beginPath(); ctx.arc(cx, cy - 6, 11, 0, Math.PI * 2); ctx.fill()
+          ctx.strokeStyle = `rgba(232,200,90,${gl})`; ctx.lineWidth = 2.5
+          ctx.beginPath(); ctx.arc(cx, cy - 6, 4.5, 0, Math.PI * 2); ctx.stroke()
+          // Miembros sentados alrededor (se omite el personaje del jugador)
+          const seated = COUNCIL_MEMBERS.filter(m => m.key !== p?.char)
+          const N = seated.length
+          seated.forEach((m, i) => {
+            const ang = -Math.PI / 2 + (i / N) * Math.PI * 2
+            const mx = cx + Math.cos(ang) * 98
+            const my = cy + Math.sin(ang) * 56
+            // Silla de madera
+            ctx.fillStyle = '#4a3a2a'
+            ctx.fillRect(mx - 7, my + 4, 14, 6)
+            // Túnica
+            ctx.fillStyle = m.robe
+            ctx.beginPath()
+            ctx.moveTo(mx - 8, my + 8)
+            ctx.quadraticCurveTo(mx - 9, my - 4, mx, my - 9)
+            ctx.quadraticCurveTo(mx + 9, my - 4, mx + 8, my + 8)
+            ctx.closePath(); ctx.fill()
+            // Cabeza
+            ctx.fillStyle = '#e8d4b8'
+            ctx.beginPath(); ctx.arc(mx, my - 12, 5, 0, Math.PI * 2); ctx.fill()
+            // Cabello
+            ctx.fillStyle = m.hair
+            ctx.beginPath(); ctx.arc(mx, my - 13, 5, Math.PI * 0.85, Math.PI * 2.15); ctx.fill()
+            // Nombre
+            ctx.font = 'bold 7px monospace'
+            ctx.fillStyle = '#c8b878'
+            ctx.textAlign = 'center'
+            ctx.fillText(m.name.toUpperCase(), mx, my + 20)
+          })
+          // Etiqueta de la mesa
+          ctx.font = 'bold 8px monospace'
+          ctx.fillStyle = 'rgba(226,200,120,0.85)'
+          ctx.textAlign = 'center'
+          ctx.fillText('EL CONCILIO DE ELROND', cx, cy + 52)
+          // Indicador de interacción al acercarse
+          if (p) {
+            const ddx = COUNCIL_POS.x - p.x, ddy = COUNCIL_POS.y - p.y
+            if (Math.sqrt(ddx * ddx + ddy * ddy) < 3.5 * T) {
+              ctx.font = 'bold 10px monospace'
+              ctx.fillStyle = '#e2c84a'
+              ctx.fillText('[E]', cx, cy - 44 + Math.sin(st.frameCount * 0.1) * 2)
+            }
+          }
+        }
+      }
       // Indicador de misión sobre Elrond
       if (st.quest.stage === 2) {
         const qx = ELROND_POS.x - sx, qy = ELROND_POS.y - sy - 38 + Math.sin(st.frameCount * 0.1) * 3
