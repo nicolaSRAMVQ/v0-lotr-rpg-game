@@ -257,6 +257,47 @@ interface Nazgul {
   deathFrame: number
   waveNum: number
   webSlow?: number
+  isBoss?: boolean
+  bossName?: string
+  sizeMult?: number
+  summonCd?: number
+}
+
+interface Chest {
+  id: string
+  x: number
+  y: number
+  opened: boolean
+  gold: number
+  item: string | null
+  bob: number
+}
+
+// Orden lineal de las regiones para el mapa mundial
+const REGION_ORDER: RegionId[] = ['comarca', 'bosque', 'rivendell']
+
+// Jefe de cada región (null = refugio sin jefe)
+const REGION_BOSSES: Record<RegionId, { name: string; kind: EnemyKind; hp: number; dmg: number; sizeMult: number; xp: number; gold: number } | null> = {
+  comarca:   { name: 'El Rey Brujo de Angmar', kind: 'nazgul', hp: 70,  dmg: 3, sizeMult: 1.9, xp: 220, gold: 120 },
+  bosque:    { name: 'La Reina Araña',         kind: 'spider', hp: 90,  dmg: 2, sizeMult: 2.2, xp: 280, gold: 160 },
+  rivendell: null,
+}
+
+// Cofres del tesoro por región (posiciones y botín fijos)
+const REGION_CHESTS: Record<RegionId, { id: string; tx: number; ty: number; gold: number; item: string | null }[]> = {
+  comarca: [
+    { id: 'com1', tx: 30, ty: 24, gold: 25, item: 'elixir' },
+    { id: 'com2', tx: 68, ty: 48, gold: 30, item: 'lembas' },
+  ],
+  bosque: [
+    { id: 'bos1', tx: 24, ty: 30, gold: 40, item: 'miruvor' },
+    { id: 'bos2', tx: 70, ty: 44, gold: 45, item: 'elixir' },
+    { id: 'bos3', tx: 52, ty: 22, gold: 35, item: 'lembas' },
+  ],
+  rivendell: [
+    { id: 'riv1', tx: 34, ty: 26, gold: 60, item: 'miruvor' },
+    { id: 'riv2', tx: 66, ty: 30, gold: 70, item: 'elixir' },
+  ],
 }
 
 type EnemyKind = 'nazgul' | 'warg' | 'orc' | 'spider' | 'wight'
@@ -287,6 +328,45 @@ const RIVENDELL_ELVES = [
   { name: 'Erestor', x: 56 * 32, y: 36 * 32, robe: '#8a7ab0' },
   { name: 'Glorfindel', x: 47 * 32, y: 24 * 32, robe: '#c8b878' },
 ]
+// El Concilio de Elrond: mesa redonda al sur de Elrond
+const COUNCIL_POS = { x: 50 * 32, y: 44 * 32 }
+const COUNCIL_MEMBERS = [
+  { key: 'gandalf', name: 'Gandalf', robe: '#8a8a8a', hair: '#e8e8e8' },
+  { key: 'aragorn', name: 'Aragorn', robe: '#4a5a3a', hair: '#2a2018' },
+  { key: 'boromir', name: 'Boromir', robe: '#7a6a3a', hair: '#8a7a4a' },
+  { key: 'legolas', name: 'Legolas', robe: '#3a5a4a', hair: '#d8c888' },
+  { key: 'gimli',   name: 'Gimli',   robe: '#7a3a2a', hair: '#b05028' },
+  { key: 'frodo',   name: 'Frodo',   robe: '#5a6a4a', hair: '#6a4a2a' },
+]
+
+// Texto del Concilio según el personaje que juegas
+const COUNCIL_INTRO: Record<string, string> = {
+  frodo:   'un mediano cargará el peso que los reyes no osaron. La sombra crece. ¿Cuál es tu voluntad?',
+  aragorn: 'la sangre de Númenor corre por tus venas. Isildur cayó donde tú podrías vencer. ¿Cuál es tu voluntad?',
+  gandalf: 'tu sabiduría guía a los Sabios, mas ni tú puedes portar el Anillo. ¿Cuál es tu consejo?',
+  legolas: 'el Bosque Negro envió su mensaje. Los Elfos deben decidir su parte. ¿Cuál es tu voluntad?',
+  gimli:   'los Enanos de Erebor no se arredran ante la sombra. ¿Cuál es tu voluntad, hijo de Glóin?',
+  default: 'la sombra crece. ¿Cuál es tu voluntad?',
+}
+
+const COUNCIL_OATH: Record<string, string> = {
+  frodo:   'Yo llevaré el Anillo a Mordor, aunque no sepa el camino.',
+  aragorn: 'Si con mi vida o mi muerte puedo protegerte, lo haré.',
+  gandalf: 'Guiaré a la Compañía mientras la llama me sostenga.',
+  legolas: 'El arco de Lórien está al servicio del Portador.',
+  gimli:   '¡Y mi hacha! Los Enanos marcharán con vosotros.',
+  default: 'Yo llevaré el Anillo a Mordor.',
+}
+
+interface CouncilBoon { hp: number; dmg: number; gold: number; title: string; short: string; praise: string }
+const COUNCIL_BOON: Record<string, CouncilBoon> = {
+  frodo:   { hp: 8, dmg: 0, gold: 50, title: 'VALOR DEL PORTADOR: +8 HP máx, curación total y 50 MC', short: 'Valor del Portador', praise: 'En verdad tienes el valor de los Grandes, aun siendo pequeño.' },
+  aragorn: { hp: 4, dmg: 3, gold: 40, title: 'HEREDERO DE ISILDUR: +4 HP máx, +3 daño y 40 MC', short: 'Heredero de Isildur', praise: 'La espada que fue rota volverá a brillar, Elessar.' },
+  gandalf: { hp: 2, dmg: 4, gold: 40, title: 'LLAMA DE ANOR: +2 HP máx, +4 daño y 40 MC', short: 'Llama de Anor', praise: 'Que tu sabiduría sea faro para la Compañía, Mithrandir.' },
+  legolas: { hp: 4, dmg: 3, gold: 40, title: 'ARQUERO DEL BOSQUE: +4 HP máx, +3 daño y 40 MC', short: 'Arquero del Bosque', praise: 'Los Elfos honran tu promesa, hijo de Thranduil.' },
+  gimli:   { hp: 6, dmg: 2, gold: 40, title: 'HACHA DE EREBOR: +6 HP máx, +2 daño y 40 MC', short: 'Hacha de Erebor', praise: 'El coraje de los Enanos nunca fue puesto en duda, Gimli.' },
+  default: { hp: 5, dmg: 0, gold: 50, title: 'VALOR DEL PORTADOR: +5 HP máx, curación total y 50 MC', short: 'Valor del Portador', praise: 'En verdad tienes el valor de los Grandes.' },
+}
 
 interface HeroCompanion {
   char: string
@@ -353,6 +433,8 @@ interface Player {
   spellCooldowns: Record<string, number>
   activeEffects: { effect: string; duration: number }[]
   webbed: number
+  xp: number
+  level: number
 }
 
 interface Merchant {
@@ -361,6 +443,46 @@ interface Merchant {
   y: number
   dir: Dir
   frame: number
+}
+
+// NPC de escena: personaje guionado, propio de una región (montaraz, viajero, etc.)
+interface SceneNpc {
+  id: string
+  kind: 'ranger' | 'wanderer'
+  name: string
+  x: number
+  y: number
+  dir: Dir
+  frame: number
+  bob: number
+  talked: boolean
+  helped: boolean
+}
+
+// NPC itinerante: comerciante o explorador que recorre rutas entre puntos del mapa
+interface Roamer {
+  id: string
+  kind: 'peddler' | 'scout'
+  name: string
+  x: number
+  y: number
+  dir: Dir
+  frame: number
+  route: { x: number; y: number }[]
+  routeIdx: number
+  pauseTimer: number
+  greeted: boolean
+  errand?: RoamerErrand
+}
+
+interface RoamerErrand {
+  desc: string
+  need: string      // item key requerido para entregar
+  needLabel: string
+  reward: number
+  goldReward: number
+  offered: boolean
+  done: boolean
 }
 
 interface FX {
@@ -388,7 +510,7 @@ interface DlgState {
   lines: string[]
   lineIdx: number
   opts: { l: string; action?: string }[]
-  target?: Villager
+  target?: Villager | SceneNpc | Roamer
 }
 
 interface GameState {
@@ -400,6 +522,7 @@ interface GameState {
   nazgulList: Nazgul[]
   gandalfAlly: GandalfAlly | null
   heroCompanions: HeroCompanion[]
+  councilDone: boolean
   invNaz: boolean
   invTimer: number
   invWarned: boolean
@@ -428,9 +551,36 @@ interface GameState {
   activeMerchant: string | null
   shire: ShireState
   region: RegionId
-  regionTransition: { active: boolean; to: RegionId | null; progress: number; phase: 'out' | 'in' }
+  regionTransition: { active: boolean; to: RegionId | null; progress: number; phase: 'out' | 'in'; fast?: boolean }
   quest: { stage: number }
+  sceneNpcs: SceneNpc[]
+  roamers: Roamer[]
+  forestScene: { ambushTriggered: boolean; ambushCleared: boolean; scoutRescued: boolean }
+  chests: Chest[]
+  unlocked: RegionId[]
+  bossTriggered: Partial<Record<RegionId, boolean>>
 }
+
+const SAVE_KEY = 'lotr-rpg-save-v1'
+interface SaveData {
+  char: string
+  difficulty: 'easy' | 'normal' | 'hard'
+  gameMode: GameMode
+  region: RegionId
+  hp: number
+  maxhp: number
+  dmg: number
+  gold: number
+  inv: string[]
+  questStage: number
+  councilDone: boolean
+  wave: number
+  xp?: number
+  level?: number
+  unlocked?: RegionId[]
+  bossTriggered?: Partial<Record<RegionId, boolean>>
+  savedAt: number
+  }
 
 const SOLID = new Set<TileType>(['tree', 'mill', 'darktree', 'pine', 'water', 'rock', 'rivwater', 'cliff', 'arch'])
 
@@ -493,6 +643,8 @@ function GameInner() {
   const [selectedChar, setSelectedChar] = useState<string | null>(null)
   const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>('normal')
   const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
+  const [savedGame, setSavedGame] = useState<SaveData | null>(null)
+  const [worldMapOpen, setWorldMapOpen] = useState(false)
   const [, forceUpdate] = useState(0)
   const [isCompact, setIsCompact] = useState(false)
   const [invPanelOpen, setInvPanelOpen] = useState(false)
@@ -505,6 +657,7 @@ function GameInner() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const minimapRef = useRef<HTMLCanvasElement>(null)
   const S = useRef<GameState | null>(null)
+  const screenRef = useRef<'charsel' | 'game' | 'dead' | 'gameover' | 'win' | 'diffsel' | 'pause'>('charsel')
   const animRef = useRef<number>(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
@@ -517,6 +670,16 @@ function GameInner() {
       setScreen('diffsel')
     }
   }, [searchParams])
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY)
+      if (raw) {
+        const data = JSON.parse(raw) as SaveData
+        if (data && data.char && Object.keys(CHARS).includes(data.char)) setSavedGame(data)
+      }
+    } catch {}
+  }, [])
 
   // Iniciar reproducción de música lofi
   const startLofiMusic = useCallback(() => {
@@ -862,6 +1025,30 @@ function GameInner() {
     }
   }, [])
 
+  const spawnChests = useCallback((region: RegionId): Chest[] => {
+    return (REGION_CHESTS[region] || []).map(c => ({
+      id: c.id, x: c.tx * T, y: c.ty * T, opened: false, gold: c.gold, item: c.item, bob: 0,
+    }))
+  }, [])
+
+  const spawnBoss = useCallback((region: RegionId): Nazgul | null => {
+    const def = REGION_BOSSES[region]
+    if (!def) return null
+    const boss = createNazgul(10, def.kind)
+    boss.hp = def.hp
+    boss.maxhp = def.hp
+    boss.dmg = def.dmg * 4
+    boss.spd = boss.spd * 0.9
+    boss.isBoss = true
+    boss.bossName = def.name
+    boss.sizeMult = def.sizeMult
+    boss.summonCd = 360
+    boss.state = 'hunt'
+    boss.x = (WW - 4) * T
+    boss.y = 38 * T
+    return boss
+  }, [createNazgul])
+
   const spawnHeroCompanions = useCallback((playerChar: string): HeroCompanion[] => {
     const HERO_POSITIONS: Record<string, { x: number; y: number; patrol: {x:number;y:number}[] }> = {
       frodo:   { x: 44*T, y: 36*T, patrol: [{x:43*T,y:36*T},{x:45*T,y:36*T},{x:44*T,y:37*T},{x:44*T,y:35*T}] },
@@ -916,9 +1103,54 @@ function GameInner() {
     }
   }, [])
 
-  const startGame = useCallback((charKey: string, mode: GameMode) => {
+  // NPCs guionados por región: aparecen para recrear escenas propias del lugar
+  const spawnSceneNpcs = useCallback((region: RegionId): SceneNpc[] => {
+    if (region === 'bosque') {
+      return [{
+        id: 'mablung', kind: 'ranger', name: 'Mablung el Montaraz',
+        x: 26 * T, y: 38 * T, dir: 'right', frame: 0, bob: 0,
+        talked: false, helped: false,
+      }]
+    }
+    return []
+  }, [])
+
+  // NPCs itinerantes: recorren rutas propias de cada región (comerciante, explorador)
+  const spawnRoamers = useCallback((region: RegionId): Roamer[] => {
+    if (region === 'comarca') {
+      return [{
+        id: 'buhonero', kind: 'peddler', name: 'Buhonero de Bree',
+        x: 12 * T, y: 40 * T, dir: 'right', frame: 0,
+        route: [ { x: 12*T, y: 40*T }, { x: 40*T, y: 34*T }, { x: 66*T, y: 42*T }, { x: 84*T, y: 30*T } ],
+        routeIdx: 0, pauseTimer: 0, greeted: false,
+        errand: { desc: 'Perdí mi cantimplora de miruvor en el camino. Si consigues una, te la compro bien.', need: 'miruvor', needLabel: 'miruvor', reward: 0, goldReward: 30, offered: false, done: false },
+      }]
+    }
+    if (region === 'bosque') {
+      return [{
+        id: 'explorador', kind: 'scout', name: 'Halbarad, explorador',
+        x: 20 * T, y: 30 * T, dir: 'down', frame: 0,
+        route: [ { x: 20*T, y: 30*T }, { x: 38*T, y: 46*T }, { x: 58*T, y: 32*T }, { x: 78*T, y: 44*T } ],
+        routeIdx: 0, pauseTimer: 0, greeted: false,
+        errand: { desc: 'Los Montaraces necesitamos raciones. Tráeme lembas y te recompensaré con oro y una pócima.', need: 'lembas', needLabel: 'lembas', reward: 0, goldReward: 25, offered: false, done: false },
+      }]
+    }
+    if (region === 'rivendell') {
+      return [{
+        id: 'mensajero', kind: 'scout', name: 'Mensajero élfico',
+        x: 30 * T, y: 30 * T, dir: 'right', frame: 0,
+        route: [ { x: 30*T, y: 30*T }, { x: 50*T, y: 26*T }, { x: 66*T, y: 34*T }, { x: 44*T, y: 40*T } ],
+        routeIdx: 0, pauseTimer: 0, greeted: false,
+        errand: { desc: 'Debo enviar un elixir a los guardianes. Si tienes uno, Elrond premiará tu generosidad.', need: 'elixir', needLabel: 'elixir', reward: 0, goldReward: 40, offered: false, done: false },
+      }]
+    }
+    return []
+  }, [])
+
+  const startGame = useCallback((charKey: string, mode: GameMode, save?: SaveData | null) => {
     const charDef = CHARS[charKey]
-    const map = buildMap()
+    const startRegion: RegionId = save ? save.region : 'comarca'
+    const map = buildMap(startRegion)
     const startX = 50 * T, startY = 38 * T
 
     S.current = {
@@ -927,15 +1159,15 @@ function GameInner() {
         char: charKey,
         x: startX,
         y: startY,
-        hp: charDef.maxhp,
-        maxhp: charDef.maxhp,
+        hp: save ? save.hp : charDef.maxhp,
+        maxhp: save ? save.maxhp : charDef.maxhp,
         spd: charDef.spd,
-        dmg: charDef.dmg,
+        dmg: save ? save.dmg : charDef.dmg,
         range: charDef.range,
         dir: 'down',
         frame: 0,
-        inv: [...charDef.startItems],
-        gold: 0,
+        inv: save ? [...save.inv] : [...charDef.startItems],
+        gold: save ? save.gold : 0,
         ringActive: 0,
         ringShimmer: 0,
         invT: 0,
@@ -952,13 +1184,16 @@ function GameInner() {
         spellCooldowns: {},
         activeEffects: [],
       webbed: 0,
+      xp: save ? (save.xp ?? 0) : 0,
+      level: save ? (save.level ?? 1) : 1,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
       nazgul: null,
       nazgulList: [],
       gandalfAlly: spawnGandalfAlly(),
-      heroCompanions: spawnHeroCompanions(charKey),
+      heroCompanions: startRegion === 'comarca' ? spawnHeroCompanions(charKey) : [],
+      councilDone: save ? save.councilDone : false,
       invNaz: false,
       invTimer: mode === 'exploration' ? 999999 : 360,
       invWarned: false,
@@ -1004,9 +1239,15 @@ function GameInner() {
         cultureTimer: 0,
         lastMilestone: 0,
       },
-      region: 'comarca',
+      region: startRegion,
       regionTransition: { active: false, to: null, progress: 0, phase: 'out' },
-      quest: { stage: 0 },
+      quest: { stage: save ? save.questStage : 0 },
+      sceneNpcs: startRegion === 'comarca' ? [] : spawnSceneNpcs(startRegion),
+      roamers: spawnRoamers(startRegion),
+      forestScene: { ambushTriggered: startRegion !== 'comarca', ambushCleared: startRegion !== 'comarca', scoutRescued: false },
+      chests: spawnChests(startRegion),
+      unlocked: save?.unlocked?.length ? save.unlocked : REGION_ORDER.slice(0, REGION_ORDER.indexOf(startRegion) + 1),
+      bossTriggered: save?.bossTriggered ? { ...save.bossTriggered } : {},
     }
 
     if (mode === 'exploration') {
@@ -1015,8 +1256,55 @@ function GameInner() {
       log('s', 'Modo Horda. Sobrevive 10 oleadas.')
     }
     log('i', 'Bienvenido a Hobbiton. Protege a los aldeanos.')
+    if (save) log('s', 'Partida cargada. Tu viaje continúa.')
     setScreen('game')
-  }, [buildMap, spawnVillagers, spawnGandalfAlly, spawnHeroCompanions, log])
+  }, [buildMap, spawnVillagers, spawnGandalfAlly, spawnHeroCompanions, spawnSceneNpcs, spawnRoamers, log])
+
+  const travelToRegion = useCallback((dest: RegionId) => {
+    const st = S.current
+    if (!st || !st.p) return
+    setWorldMapOpen(false)
+    if (dest === st.region || st.regionTransition.active) return
+    if (!st.unlocked.includes(dest)) {
+      notify('Región no descubierta', '#c04030')
+      return
+    }
+    st.regionTransition = { active: true, to: dest, progress: 0, phase: 'out', fast: true }
+    playSfx('click')
+  }, [])
+
+  const saveGame = useCallback(() => {
+    const st = S.current
+    if (!st || !st.p || st.gameMode !== 'exploration') return
+    try {
+      const data: SaveData = {
+        char: st.p.char,
+        difficulty,
+        gameMode: st.gameMode,
+        region: st.region,
+        hp: st.p.hp,
+        maxhp: st.p.maxhp,
+        dmg: st.p.dmg,
+        gold: st.p.gold,
+        inv: st.p.inv,
+        questStage: st.quest.stage,
+        councilDone: st.councilDone,
+        wave: st.wave,
+        xp: st.p.xp,
+        level: st.p.level,
+        unlocked: st.unlocked,
+        bossTriggered: st.bossTriggered,
+        savedAt: Date.now(),
+      }
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data))
+      setSavedGame(data)
+    } catch {}
+  }, [difficulty])
+
+  const clearSave = useCallback(() => {
+    try { localStorage.removeItem(SAVE_KEY) } catch {}
+    setSavedGame(null)
+  }, [])
 
   const revive = useCallback(() => {
     if (!S.current || !S.current.p) return
@@ -1230,6 +1518,113 @@ function GameInner() {
     forceUpdate(n => n + 1)
   }, [log])
 
+  const openCouncilDlg = useCallback(() => {
+    if (!S.current || !S.current.p) return
+    const st = S.current
+    const char = st.p!.char
+    const pName = CHARS[char].name
+    if (!st.councilDone) {
+      log('e', 'ELROND: El Concilio ha comenzado. El Anillo no puede ocultarse más.')
+      const intro = COUNCIL_INTRO[char] || COUNCIL_INTRO.default
+      log('e', `ELROND: ${pName}, ${intro}`)
+      const oath = COUNCIL_OATH[char] || COUNCIL_OATH.default
+      st.dlg = {
+        active: true, speaker: 'EL CONCILIO', lines: [], lineIdx: 0,
+        opts: [
+          { l: oath, action: 'council_volunteer' },
+          { l: 'Que la Compañía marche unida.', action: 'council_fellowship' },
+          { l: 'Escuchar el debate.', action: 'council_listen' },
+        ],
+      }
+    } else {
+      log('e', 'La Compañía del Anillo aguarda junto a la mesa redonda.')
+      st.dlg = {
+        active: true, speaker: 'EL CONCILIO', lines: [], lineIdx: 0,
+        opts: [
+          { l: 'Descansar con la Compañía', action: 'council_heal' },
+          { l: 'Partir', action: 'close' },
+        ],
+      }
+    }
+    forceUpdate(n => n + 1)
+  }, [log])
+
+  const openSceneNpcDlg = useCallback((npc: SceneNpc) => {
+    if (!S.current || !S.current.p) return
+    const st = S.current
+    const fs = st.forestScene
+    const NAME = npc.name.toUpperCase()
+    if (!fs.ambushCleared) {
+      // Antes de despejar la senda: advierte del peligro
+      log('e', `${NAME}: ¡Alto! No sigas al este... hay un nido de arañas en la espesura.`)
+      log('e', `${NAME}: Estoy herido y no puedo seguir. Despeja la senda y te recompensaré.`)
+      st.dlg = {
+        active: true, speaker: NAME, lines: [], lineIdx: 0,
+        opts: [
+          { l: 'Yo abriré camino.', action: 'scene_accept' },
+          { l: '¿Qué hacías aquí?', action: 'scene_lore' },
+          { l: 'Adiós', action: 'close' },
+        ],
+      }
+    } else if (!npc.helped) {
+      // Tras despejar: entrega la recompensa una sola vez
+      log('e', `${NAME}: ¡Lo lograste! El Camino Verde vuelve a ser transitable.`)
+      st.dlg = {
+        active: true, speaker: NAME, lines: [], lineIdx: 0,
+        opts: [
+          { l: 'Recibir recompensa del montaraz', action: 'scene_reward' },
+        ],
+        target: npc,
+      }
+    } else {
+      log('e', `${NAME}: Que los Valar guarden tus pasos, amigo.`)
+      st.dlg = {
+        active: true, speaker: NAME, lines: [], lineIdx: 0,
+        opts: [{ l: 'Adiós', action: 'close' }],
+      }
+    }
+    forceUpdate(n => n + 1)
+  }, [log])
+
+  const openRoamerDlg = useCallback((r: Roamer) => {
+    if (!S.current || !S.current.p) return
+    const st = S.current
+    const NAME = r.name.toUpperCase()
+    const er = r.errand
+    const canDeliver = !!er && !er.done && !!st.p && st.p.inv.includes(er.need)
+    const errandOpt: { l: string; action?: string }[] = []
+    if (er && !er.done) {
+      if (canDeliver) errandOpt.push({ l: `Entregar ${er.needLabel} (+${er.goldReward} oro)`, action: 'roamer_deliver' })
+      else errandOpt.push({ l: er.offered ? `Recado: traer ${er.needLabel}` : 'Ofrecer ayuda', action: 'roamer_errand' })
+    }
+    if (r.kind === 'peddler') {
+      log('e', `${NAME}: ¡Baratijas y provisiones de camino! ¿Te interesa algo?`)
+      st.dlg = {
+        active: true, speaker: NAME, lines: [], lineIdx: 0,
+        opts: [
+          ...errandOpt,
+          { l: 'Comprar lembas (8 oro)', action: 'roamer_buy_lembas' },
+          { l: 'Comprar miruvor (12 oro)', action: 'roamer_buy_miruvor' },
+          { l: 'Rumores del camino', action: 'roamer_rumor' },
+          { l: 'Adiós', action: 'close' },
+        ],
+        target: r,
+      }
+    } else {
+      log('e', `${NAME}: Vigilo estos senderos. Mantén los ojos abiertos, viajero.`)
+      st.dlg = {
+        active: true, speaker: NAME, lines: [], lineIdx: 0,
+        opts: [
+          ...errandOpt,
+          { l: 'Pedir informe del camino', action: 'roamer_scout' },
+          { l: 'Adiós', action: 'close' },
+        ],
+        target: r,
+      }
+    }
+    forceUpdate(n => n + 1)
+  }, [log])
+
   const advanceDlg = useCallback(() => {
     if (!S.current || !S.current.dlg.active) return
     const dlg = S.current.dlg
@@ -1254,12 +1649,52 @@ function GameInner() {
       log('s', '✦ BENDICIÓN DE ELROND: +5 HP máx, curación total y 100 MC ✦')
       notify('✦ MISIÓN CUMPLIDA ✦', '#c8b878')
       playSfx('heal')
+      saveGame()
       dlg.active = false
     } else if (opt.action === 'elrond_heal') {
       const p = S.current.p!
       p.hp = p.maxhp
       log('s', 'ELROND: Tus heridas han sanado.')
       notify('✦ Curación total ✦', '#c8b878')
+      dlg.active = false
+    } else if (opt.action === 'council_volunteer') {
+      const p = S.current.p!
+      S.current.councilDone = true
+      const boon = COUNCIL_BOON[p.char] || COUNCIL_BOON.default
+      p.maxhp += boon.hp; p.hp = p.maxhp
+      p.dmg += boon.dmg
+      p.gold += boon.gold
+      log('s', `ELROND: ${boon.praise}`)
+      log('s', `✦ ${boon.title} ✦`)
+      notify(`✦ ${boon.short} ✦`, '#e2c84a')
+      playSfx('heal')
+      dlg.active = false
+    } else if (opt.action === 'council_fellowship') {
+      const p = S.current.p!
+      S.current.councilDone = true
+      p.dmg += 2
+      log('s', 'GANDALF: Entonces la Compañía marchará unida, pase lo que pase.')
+      log('s', '✦ FUERZA DE LA COMPAÑÍA: +2 de daño permanente ✦')
+      notify('✦ La Compañía del Anillo ✦', '#c8b878')
+      playSfx('heal')
+      dlg.active = false
+    } else if (opt.action === 'council_listen') {
+      const p = S.current.p!
+      S.current.councilDone = true
+      p.gold += 30
+      log('e', 'BOROMIR: ¿Por qué no usar el Anillo contra el propio Enemigo?')
+      log('e', 'ELROND: No podemos usarlo. Su único señor es Sauron.')
+      if (p.char === 'aragorn') log('e', 'BOROMIR: ¿Y qué sabe un montaraz de las cosas de reyes?')
+      else if (p.char === 'legolas') log('e', 'GIMLI: ¡Nunca confíes en un Elfo! ...aunque este tiene buena puntería.')
+      else if (p.char === 'gimli') log('e', 'LEGOLAS: Jamás pensé pedir ayuda a un Enano. Y sin embargo, aquí estamos.')
+      else log('e', 'ARAGORN: Confiaré mi espada a quien lleve el Anillo.')
+      log('s', '✦ Has aprendido la historia del Anillo Único (+30 MC) ✦')
+      dlg.active = false
+    } else if (opt.action === 'council_heal') {
+      const p = S.current.p!
+      p.hp = p.maxhp
+      log('s', 'La Compañía comparte pan élfico. Tus heridas sanan.')
+      notify('✦ Descanso en Imladris ✦', '#c8b878')
       dlg.active = false
     } else if (opt.action && opt.action.startsWith('hero_follow_')) {
       const charKey = opt.action.replace('hero_follow_', '')
@@ -1293,7 +1728,7 @@ function GameInner() {
         notify('Gandalf patrulla', '#8a8860')
       }
       dlg.active = false
-    } else if (opt.action === 'give_item' && dlg.target) {
+    } else if (opt.action === 'give_item' && dlg.target && 'items' in dlg.target) {
       const v = dlg.target
       if (v.items.length > 0 && S.current.p && S.current.p.inv.length < 5) {
         const item = v.items.shift()!
@@ -1302,15 +1737,95 @@ function GameInner() {
         notify(`${ITEMS[item]?.icon || item} en el suelo`, '#c8a84b')
       }
       dlg.active = false
-    } else if (opt.action === 'stay_home' && dlg.target) {
-      dlg.target.state = 'walk'
-      dlg.target.patrolIdx = 0
-      dlg.target.patrol = [{ x: dlg.target.homeX, y: dlg.target.homeY }]
-      log('i', `${dlg.target.name} se queda cerca de casa.`)
+    } else if (opt.action === 'stay_home' && dlg.target && 'patrol' in dlg.target) {
+      const v = dlg.target
+      v.state = 'walk'
+      v.patrolIdx = 0
+      v.patrol = [{ x: v.homeX, y: v.homeY }]
+      log('i', `${v.name} se queda cerca de casa.`)
+      dlg.active = false
+    } else if (opt.action === 'scene_accept') {
+      log('e', 'MABLUNG EL MONTARAZ: Ve con cuidado. Descienden de las ramas sin avisar.')
+      notify('Adéntrate al este', '#8aa060')
+      dlg.active = false
+    } else if (opt.action === 'scene_lore') {
+      log('e', 'MABLUNG EL MONTARAZ: Sigo el rastro de los Nueve. El bosque se ha vuelto hostil.')
+      log('e', 'MABLUNG EL MONTARAZ: Las arañas de Ella-Laraña se extienden desde el sur.')
+      dlg.active = false
+    } else if (opt.action === 'scene_reward') {
+      const p = S.current.p!
+      const npc = dlg.target as SceneNpc
+      if (npc && !npc.helped) {
+        npc.helped = true
+        S.current.forestScene.scoutRescued = true
+        p.gold += 60
+        p.hp = Math.min(p.maxhp, p.hp + 4)
+        if (p.inv.length < 5) p.inv.push('miruvor')
+        log('s', 'MABLUNG EL MONTARAZ: Toma esto, lo has ganado con creces.')
+        log('s', '✦ Recompensa del montaraz: +60 MC, curación y un miruvor ✦')
+        notify('✦ Senda del Bosque despejada ✦', '#7aa050')
+        playSfx('heal')
+      }
+      dlg.active = false
+    } else if (opt.action === 'roamer_buy_lembas') {
+      const p = S.current.p!
+      if (p.gold >= 8 && p.inv.length < 5) {
+        p.gold -= 8; p.inv.push('lembas')
+        log('s', 'Compraste lembas al buhonero.')
+        notify('lembas comprado', '#c8a84b'); playSfx('pickup')
+      } else { log('i', 'No tienes oro o espacio suficiente.') }
+      dlg.active = false
+    } else if (opt.action === 'roamer_buy_miruvor') {
+      const p = S.current.p!
+      if (p.gold >= 12 && p.inv.length < 5) {
+        p.gold -= 12; p.inv.push('miruvor')
+        log('s', 'Compraste miruvor al buhonero.')
+        notify('miruvor comprado', '#c8a84b'); playSfx('pickup')
+      } else { log('i', 'No tienes oro o espacio suficiente.') }
+      dlg.active = false
+    } else if (opt.action === 'roamer_rumor') {
+      const rumors = [
+        'BUHONERO DE BREE: Dicen que jinetes negros preguntan por un tal "Bolsón".',
+        'BUHONERO DE BREE: En Rivendel se reúne un Concilio secreto, oí yo.',
+        'BUHONERO DE BREE: El Bosque Cerrado ya no es seguro. Arañas, dicen.',
+      ]
+      log('e', rumors[Math.floor(Math.random() * rumors.length)])
+      dlg.active = false
+    } else if (opt.action === 'roamer_scout') {
+      const st = S.current
+      const enemies = st.nazgulList.filter(n => n.state !== 'dying').length
+      log('e', `EXPLORADOR: Cuento ${enemies} amenaza(s) cerca. Mantente alerta.`)
+      dlg.active = false
+    } else if (opt.action === 'roamer_errand') {
+      const r = dlg.target as Roamer
+      if (r && r.errand) {
+        r.errand.offered = true
+        log('e', `${r.name.toUpperCase()}: ${r.errand.desc}`)
+        notify(`Recado: traer ${r.errand.needLabel}`, '#c8a84b')
+      }
+      dlg.active = false
+    } else if (opt.action === 'roamer_deliver') {
+      const r = dlg.target as Roamer
+      const p = S.current.p!
+      if (r && r.errand && !r.errand.done) {
+        const idx = p.inv.indexOf(r.errand.need)
+        if (idx >= 0) {
+          p.inv.splice(idx, 1)
+          p.gold += r.errand.goldReward
+          p.hp = Math.min(p.maxhp, p.hp + 3)
+          r.errand.done = true
+          log('s', `${r.name.toUpperCase()}: ¡Que los Valar te bendigan, viajero!`)
+          log('s', `✦ Recado cumplido: +${r.errand.goldReward} oro ✦`)
+          notify(`✦ Recado cumplido: +${r.errand.goldReward} oro ✦`, '#c8a84b')
+          playSfx('heal')
+        } else {
+          log('i', `No llevas ${r.errand.needLabel}.`)
+        }
+      }
       dlg.active = false
     }
     forceUpdate(n => n + 1)
-  }, [log, notify])
+  }, [log, notify, playSfx])
 
   const closeDlg = useCallback((action?: string) => {
     if (!S.current) return
@@ -1775,6 +2290,30 @@ function GameInner() {
   const tryInteract = useCallback(() => {
     if (!S.current || !S.current.p) return
     const p = S.current.p
+    const st = S.current
+
+    // Detectar cofre del tesoro cercano
+    for (const ch of st.chests) {
+      if (ch.opened) continue
+      const dx = ch.x - p.x, dy = ch.y - p.y
+      if (Math.sqrt(dx * dx + dy * dy) < 2 * T) {
+        ch.opened = true
+        p.gold += ch.gold
+        const parts: string[] = [`+${ch.gold} oro`]
+        if (ch.item) {
+          st.inventory.push(ch.item)
+          parts.push(ITEMS[ch.item]?.name ?? ch.item)
+        }
+        log('s', `Cofre abierto: ${parts.join(', ')}.`)
+        notify(`✦ ${parts.join(' · ')} ✦`, '#e0b84b')
+        playSfx('pickup')
+        for (let i = 0; i < 10; i++) {
+          st.parts.push({ x: ch.x, y: ch.y, vx: (Math.random() - 0.5) * 4, vy: -Math.random() * 4, color: '#e0b84b', life: 40, maxLife: 40 })
+        }
+        forceUpdate(n => n + 1)
+        return
+      }
+    }
 
     // Detectar merchant cercano
     if (S.current.region === 'comarca') for (const m of S.current.merchants) {
@@ -1786,8 +2325,8 @@ function GameInner() {
       }
     }
 
-    // Detectar hero companion cercano
-    for (const hero of S.current.heroCompanions) {
+    // Detectar hero companion cercano (solo en la Comarca)
+    if (S.current.region === 'comarca') for (const hero of S.current.heroCompanions) {
       const dx = hero.x - p.x, dy = hero.y - p.y
       if (Math.sqrt(dx*dx+dy*dy) < 2.5 * T) {
         const heroName = CHARS[hero.char].name
@@ -1814,8 +2353,31 @@ function GameInner() {
       }
     }
 
-    // Elrond en Rivendel
+    // NPCs de escena (montaraz del bosque, etc.)
+    for (const npc of S.current.sceneNpcs) {
+      const dx = npc.x - p.x, dy = npc.y - p.y
+      if (Math.sqrt(dx * dx + dy * dy) < 2.5 * T) {
+        openSceneNpcDlg(npc)
+        return
+      }
+    }
+
+    // NPCs itinerantes (buhonero, explorador)
+    for (const r of S.current.roamers) {
+      const dx = r.x - p.x, dy = r.y - p.y
+      if (Math.sqrt(dx * dx + dy * dy) < 2.5 * T) {
+        openRoamerDlg(r)
+        return
+      }
+    }
+
+    // Elrond y el Concilio en Rivendel
     if (S.current.region === 'rivendell') {
+      const cdx = COUNCIL_POS.x - p.x, cdy = COUNCIL_POS.y - p.y
+      if (Math.sqrt(cdx * cdx + cdy * cdy) < 3.5 * T) {
+        openCouncilDlg()
+        return
+      }
       const ex = ELROND_POS.x - p.x, ey = ELROND_POS.y - p.y
       if (Math.sqrt(ex * ex + ey * ey) < 2.5 * T) {
         openElrondDlg()
@@ -1832,7 +2394,7 @@ function GameInner() {
         return
       }
     }
-  }, [openGandalfDlg, openVillagerDlg, openElrondDlg])
+  }, [openGandalfDlg, openVillagerDlg, openElrondDlg, openCouncilDlg, openSceneNpcDlg, openRoamerDlg])
 
   const pickupNearbyItem = useCallback(() => {
     if (!S.current?.p) return
@@ -1884,14 +2446,24 @@ function GameInner() {
     // ============ TRANSICIÓN ENTRE REGIONES ============
     if (st.regionTransition.active) {
       const rt = st.regionTransition
+      const trSpeed = rt.fast ? 0.08 : 0.04
       if (rt.phase === 'out') {
-        rt.progress += 0.04
+        rt.progress += trSpeed
         if (rt.progress >= 1 && rt.to) {
           // Cambiar región: regenerar mapa y reposicionar
           const dest = rt.to
           const goingForward = REGIONS[st.region].next === dest
           st.region = dest
           st.map = buildMap(dest)
+          // Poblar NPCs de escena e itinerantes propios de la región
+          st.sceneNpcs = spawnSceneNpcs(dest)
+          st.roamers = spawnRoamers(dest)
+          st.chests = spawnChests(dest)
+          if (dest === 'bosque') {
+            st.forestScene = { ambushTriggered: false, ambushCleared: false, scoutRescued: st.forestScene.scoutRescued }
+          }
+          // Desbloquear región para el mapa mundial
+          if (!st.unlocked.includes(dest)) st.unlocked = [...st.unlocked, dest]
           // Reposicionar al jugador al borde opuesto
           if (goingForward) {
             p.x = 3 * T; p.y = 38 * T   // entra por el oeste
@@ -1920,6 +2492,7 @@ function GameInner() {
             log('m', `MISIÓN: ${QUEST_TEXTS[2]}`)
             notify('✦ Busca a Elrond ✦', '#c8b878')
           }
+          saveGame()
         }
         return  // congelar gameplay durante el fundido de salida
       } else {
@@ -1932,6 +2505,88 @@ function GameInner() {
     }
 
     if (st.screenFlash > 0) st.screenFlash--
+
+    // ============ NPCs ITINERANTES: recorren su ruta y hacen pausas ============
+    for (const r of st.roamers) {
+      r.frame = (r.frame + 0.1) % 4
+      if (r.pauseTimer > 0) { r.pauseTimer--; continue }
+      const dest = r.route[r.routeIdx]
+      const reached = moveToward(r, dest.x, dest.y, 0.6)
+      if (reached) {
+        r.pauseTimer = 120 + Math.floor(Math.random() * 120)  // descansa en el punto
+        r.routeIdx = (r.routeIdx + 1) % r.route.length
+      }
+    }
+
+    // ============ ESCENA DEL BOSQUE: emboscada de arañas ============
+    if (st.region === 'bosque') {
+      for (const npc of st.sceneNpcs) npc.bob = Math.sin(st.frameCount * 0.06 + npc.x) * 2
+      const fs = st.forestScene
+      // Disparar la emboscada al internarse en la espesura (mitad este del claro)
+      if (!fs.ambushTriggered && p.x > 55 * T) {
+        fs.ambushTriggered = true
+        const spots = [
+          { x: p.x + 6 * T, y: p.y - 3 * T }, { x: p.x + 7 * T, y: p.y + 2 * T },
+          { x: p.x + 5 * T, y: p.y + 4 * T }, { x: p.x + 8 * T, y: p.y },
+        ]
+        for (const s of spots) {
+          const spider = createNazgul(1, 'spider')
+          spider.x = Math.min((WW - 3) * T, s.x)
+          spider.y = Math.max(3 * T, Math.min((WH - 3) * T, s.y))
+          spider.state = 'chase_player'
+          st.nazgulList.push(spider)
+        }
+        log('e', '¡Emboscada! Arañas descienden de los árboles.')
+        notify('¡Emboscada de arañas!', '#8a1030')
+        playSfx('damage')
+      }
+      // Detectar cuando la emboscada ha sido superada
+      if (fs.ambushTriggered && !fs.ambushCleared) {
+        const spidersLeft = st.nazgulList.some(n => n.kind === 'spider' && n.state !== 'dying')
+        if (!spidersLeft) {
+          fs.ambushCleared = true
+          log('s', 'El bosque vuelve a quedar en silencio. Has despejado la senda.')
+          notify('✦ Senda despejada ✦', '#7aa050')
+        }
+      }
+    }
+
+    // ============ JEFE DE REGIÓN ============
+    // Aparece al acercarse al borde este de una región con jefe, y bloquea el avance hasta caer.
+    const bossDef = REGION_BOSSES[st.region]
+    if (bossDef && !st.bossTriggered[st.region]) {
+      const bossAlive = st.nazgulList.some(n => n.isBoss && n.hp > 0)
+      if (!bossAlive && p.x > (WW - 12) * T) {
+        const boss = spawnBoss(st.region)
+        if (boss) {
+          boss.y = p.y
+          st.nazgulList.push(boss)
+          log('e', `⚔ ${boss.bossName} bloquea tu camino.`)
+          notify(`☠ ${boss.bossName}`, '#8a1030')
+          playSfx('damage')
+          st.screenFlash = 10
+        }
+      }
+    }
+    // Zumbido y summon del jefe mientras vive
+    for (const b of st.nazgulList) {
+      if (!b.isBoss || b.hp <= 0 || b.state === 'dying') continue
+      if (b.summonCd !== undefined) {
+        b.summonCd--
+        if (b.summonCd <= 0) {
+          b.summonCd = 420
+          const minions = b.kind === 'spider' ? 'spider' : (REGIONS[st.region].enemies[0] || 'orc')
+          for (let i = 0; i < 2; i++) {
+            const m = createNazgul(st.wave, minions as EnemyKind)
+            m.x = b.x + (Math.random() - 0.5) * 4 * T
+            m.y = b.y + (Math.random() - 0.5) * 4 * T
+            m.state = 'chase_player'
+            st.nazgulList.push(m)
+          }
+          notify(`${b.bossName} invoca esbirros`, '#8a1030')
+        }
+      }
+    }
 
     if (p.invT > 0) p.invT--
     if (p.atkCd > 0) p.atkCd--
@@ -2274,7 +2929,7 @@ function GameInner() {
     ]
     const claimedTargets = new Set<object>()
 
-    for (const hero of st.heroCompanions) {
+    if (st.region === 'comarca') for (const hero of st.heroCompanions) {
       if (hero.attackCooldown > 0) hero.attackCooldown--
       const hpdx = p.x - hero.x, hpdy = p.y - hero.y
       const hpDist = Math.sqrt(hpdx*hpdx + hpdy*hpdy)
@@ -2509,9 +3164,10 @@ function GameInner() {
         if (naz.deathFrame === 80) {
           st.groundMarks.push({ x: naz.x, y: naz.y, alpha: 0.6 })
           if (st.p) {
-            st.p.xp += XP_REWARDS.nazgul
-            const nextLvl = st.p.level
-            if (nextLvl < XP_TABLE.length && st.p.xp >= XP_TABLE[nextLvl]) {
+            const xpGain = naz.isBoss ? (REGION_BOSSES[st.region]?.xp ?? 200) : XP_REWARDS.nazgul
+            st.p.xp += xpGain
+            // Puede subir varios niveles de golpe (útil para jefes)
+            while (st.p.level < XP_TABLE.length && st.p.xp >= XP_TABLE[st.p.level]) {
               st.p.level++
               st.p.maxhp += 1
               st.p.hp = Math.min(st.p.hp + 1, st.p.maxhp)
@@ -2519,9 +3175,17 @@ function GameInner() {
               log('e', `¡NIVEL ${st.p.level}! +1 HP máx, +1 DMG`)
               notify(`⭐ NIVEL ${st.p.level}`, '#c8a84b')
             }
+            if (naz.isBoss) {
+              const bg = REGION_BOSSES[st.region]?.gold ?? 100
+              st.p.gold += bg
+              st.bossTriggered[st.region] = true
+              log('e', `¡${naz.bossName ?? 'El jefe'} ha caído! +${bg} oro`)
+              notify(`☠ ${naz.bossName ?? 'JEFE'} DERROTADO`, '#e0b84b')
+              saveGame()
+            }
           }
-          const drops = ['lembas', 'miruvor']
-          const numDrops = 1 + Math.floor(Math.random() * 2)
+          const drops = naz.isBoss ? ['miruvor', 'elixir', 'miruvor'] : ['lembas', 'miruvor']
+          const numDrops = naz.isBoss ? 4 : 1 + Math.floor(Math.random() * 2)
           for (let i = 0; i < numDrops; i++) {
             st.droppedItems.push({
               x: naz.x + (Math.random() - 0.5) * T * 2,
@@ -3721,8 +4385,8 @@ function GameInner() {
       ctx.fillText(v.name, vx, vy + 20)
     }
 
-    // Render hero companions
-    for (const hero of st.heroCompanions) {
+    // Render hero companions (solo en la Comarca; en Rivendel aparecen en el Concilio)
+    if (st.region === 'comarca') for (const hero of st.heroCompanions) {
       const hx = hero.x - sx, hy = hero.y - sy
       drawSprite(ctx, hero.char, hero.dir, hero.frame, hx, hy, 2, undefined, hero.weaponSlot)
       ctx.font = 'bold 7px monospace'
@@ -3798,6 +4462,94 @@ function GameInner() {
       }
     }
 
+    // ============ NPCs ITINERANTES (buhonero / explorador) ============
+    for (const r of st.roamers) {
+      const rx = r.x - sx, ry = r.y - sy
+      if (rx < -40 || rx > canvas.width + 40 || ry < -40 || ry > canvas.height + 40) continue
+      const walk = Math.sin(r.frame * Math.PI) * 2
+      // Capa/túnica
+      ctx.fillStyle = r.kind === 'peddler' ? '#7a5a34' : '#3a5040'
+      ctx.beginPath()
+      ctx.moveTo(rx - 8, ry + 16)
+      ctx.quadraticCurveTo(rx - 9, ry - 6, rx, ry - 12)
+      ctx.quadraticCurveTo(rx + 9, ry - 6, rx + 8, ry + 16)
+      ctx.closePath(); ctx.fill()
+      // Cabeza + capucha
+      ctx.fillStyle = '#e0c8a8'
+      ctx.beginPath(); ctx.arc(rx, ry - 15 + walk * 0.3, 5, 0, Math.PI * 2); ctx.fill()
+      ctx.fillStyle = r.kind === 'peddler' ? '#8a6a44' : '#2a3a30'
+      ctx.beginPath(); ctx.arc(rx, ry - 17 + walk * 0.3, 5.5, Math.PI, Math.PI * 2); ctx.fill()
+      // El buhonero carga un fardo; el explorador un arco
+      if (r.kind === 'peddler') {
+        ctx.fillStyle = '#5a4020'
+        ctx.fillRect(rx + 6, ry - 8, 7, 9)
+      } else {
+        ctx.strokeStyle = '#6a4a2a'; ctx.lineWidth = 1.5
+        ctx.beginPath(); ctx.arc(rx - 8, ry, 8, Math.PI * 1.4, Math.PI * 2.6); ctx.stroke()
+      }
+      ctx.font = 'bold 7px monospace'
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'
+      ctx.fillRect(rx - 30, ry + 12, 60, 10)
+      ctx.fillStyle = r.kind === 'peddler' ? '#e0b060' : '#8ac0a0'
+      ctx.textAlign = 'center'
+      ctx.fillText(r.name.toUpperCase(), rx, ry + 20)
+      if (p) {
+        const d = Math.sqrt((r.x - p.x) ** 2 + (r.y - p.y) ** 2)
+        if (d < 2.5 * T) {
+          ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#c8a84b'
+          ctx.fillText('[E]', rx, ry - 24)
+        }
+      }
+    }
+
+    // ============ NPCs DE ESCENA (montaraz herido del Bosque) ============
+    for (const npc of st.sceneNpcs) {
+      const nx = npc.x - sx, ny = npc.y - sy + npc.bob
+      if (nx < -40 || nx > canvas.width + 40 || ny < -40 || ny > canvas.height + 40) continue
+      // Sombra
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'
+      ctx.beginPath(); ctx.ellipse(nx, ny + 16, 12, 5, 0, 0, Math.PI * 2); ctx.fill()
+      // Capa de montaraz (verde grisáceo)
+      ctx.fillStyle = '#3d4a38'
+      ctx.beginPath()
+      ctx.moveTo(nx - 9, ny + 16)
+      ctx.quadraticCurveTo(nx - 11, ny - 6, nx, ny - 14)
+      ctx.quadraticCurveTo(nx + 11, ny - 6, nx + 9, ny + 16)
+      ctx.closePath(); ctx.fill()
+      // Detalle de cuero
+      ctx.fillStyle = '#5a4632'
+      ctx.fillRect(nx - 5, ny - 2, 10, 8)
+      // Cabeza + capucha
+      ctx.fillStyle = '#e0c8a8'
+      ctx.beginPath(); ctx.arc(nx, ny - 17, 5.5, 0, Math.PI * 2); ctx.fill()
+      ctx.fillStyle = '#2f3a2c'
+      ctx.beginPath(); ctx.arc(nx, ny - 19, 6, Math.PI * 0.85, Math.PI * 2.15); ctx.fill()
+      // Espada al cinto
+      ctx.strokeStyle = '#b8b0a0'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(nx + 8, ny + 2); ctx.lineTo(nx + 13, ny + 12); ctx.stroke()
+      // Nombre
+      ctx.font = 'bold 8px monospace'
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'
+      ctx.fillRect(nx - 40, ny + 20, 80, 11)
+      ctx.fillStyle = '#a8c088'
+      ctx.textAlign = 'center'
+      ctx.fillText(npc.name.toUpperCase(), nx, ny + 29)
+      // Indicador de interacción
+      if (p) {
+        const d = Math.sqrt((npc.x - p.x) ** 2 + (npc.y - p.y) ** 2)
+        if (d < 2.5 * T) {
+          ctx.font = 'bold 11px monospace'
+          ctx.fillStyle = npc.helped ? '#7aa050' : '#e2c84a'
+          ctx.fillText(npc.helped ? '✓' : '[E]', nx, ny - 26)
+        } else if (!npc.helped) {
+          // Marca "!" para atraer al jugador hacia la escena
+          ctx.font = 'bold 13px monospace'
+          ctx.fillStyle = '#e2c84a'
+          ctx.fillText('!', nx, ny - 26 + Math.sin(st.frameCount * 0.12) * 2)
+        }
+      }
+    }
+
     const allNazToRender = [
       ...(st.nazgul ? [st.nazgul] : []),
       ...st.nazgulList.filter(n => n !== st.nazgul)
@@ -3828,20 +4580,48 @@ function GameInner() {
           ctx.globalAlpha = 0.5
         }
 
+        const bossScale = naz.isBoss ? (naz.sizeMult ?? 1.8) : 1
+        if (naz.isBoss) {
+          // Aura oscura pulsante del jefe
+          const pulse = 0.5 + Math.sin(st.frameCount * 0.1) * 0.15
+          const grd = ctx.createRadialGradient(nx, ny, 4, nx, ny, 34 * bossScale)
+          grd.addColorStop(0, `rgba(120,10,40,${pulse * 0.5})`)
+          grd.addColorStop(1, 'rgba(120,10,40,0)')
+          ctx.fillStyle = grd
+          ctx.beginPath(); ctx.arc(nx, ny, 34 * bossScale, 0, Math.PI * 2); ctx.fill()
+          ctx.save()
+          ctx.translate(nx, ny); ctx.scale(bossScale, bossScale); ctx.translate(-nx, -ny)
+        }
         if (naz.kind === 'nazgul') drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
         else drawCreature(ctx, naz.kind, nx, ny, naz.frame, naz.dir)
+        if (naz.isBoss) ctx.restore()
         ctx.globalAlpha = 1
 
         const ed = ENEMY_DEFS[naz.kind]
-        ctx.fillStyle = '#2a0a0a'
-        ctx.fillRect(nx - 20, ny - 45, 40, 6)
-        ctx.fillStyle = ed.accent
-        ctx.fillRect(nx - 19, ny - 44, 38 * Math.max(0, naz.hp / naz.maxhp), 4)
+        if (naz.isBoss) {
+          // Barra de vida grande del jefe
+          const bw = 70
+          ctx.fillStyle = 'rgba(0,0,0,0.6)'
+          ctx.fillRect(nx - bw / 2 - 2, ny - 58, bw + 4, 9)
+          ctx.fillStyle = '#2a0a0a'
+          ctx.fillRect(nx - bw / 2, ny - 57, bw, 7)
+          ctx.fillStyle = '#c01838'
+          ctx.fillRect(nx - bw / 2, ny - 57, bw * Math.max(0, naz.hp / naz.maxhp), 7)
+          ctx.font = 'bold 10px monospace'
+          ctx.fillStyle = '#e0b84b'
+          ctx.textAlign = 'center'
+          ctx.fillText((naz.bossName ?? 'JEFE').toUpperCase(), nx, ny - 62)
+        } else {
+          ctx.fillStyle = '#2a0a0a'
+          ctx.fillRect(nx - 20, ny - 45, 40, 6)
+          ctx.fillStyle = ed.accent
+          ctx.fillRect(nx - 19, ny - 44, 38 * Math.max(0, naz.hp / naz.maxhp), 4)
 
-        ctx.font = 'bold 8px monospace'
-        ctx.fillStyle = naz.kind === 'wight' ? '#aaccdd' : '#ff6040'
-        ctx.textAlign = 'center'
-        ctx.fillText(ed.name.toUpperCase(), nx, ny + 25)
+          ctx.font = 'bold 8px monospace'
+          ctx.fillStyle = naz.kind === 'wight' ? '#aaccdd' : '#ff6040'
+          ctx.textAlign = 'center'
+          ctx.fillText(ed.name.toUpperCase(), nx, ny + 25)
+        }
 
         // Telaraña ralentizadora si está afectado
         if (naz.webSlow && naz.webSlow > 0) {
@@ -3895,6 +4675,71 @@ function GameInner() {
       }
       for (const elf of RIVENDELL_ELVES) drawElf(elf.x, elf.y, elf.robe, elf.name, false)
       drawElf(ELROND_POS.x, ELROND_POS.y, '#5a4a78', 'Elrond', true)
+
+      // —— El Concilio de Elrond: mesa redonda con la Compañía sentada ——
+      {
+        const cx = COUNCIL_POS.x - sx, cy = COUNCIL_POS.y - sy
+        if (cx > -140 && cx < canvas.width + 140 && cy > -140 && cy < canvas.height + 140) {
+          // Sombra y mesa de piedra
+          ctx.fillStyle = 'rgba(0,0,0,0.25)'
+          ctx.beginPath(); ctx.ellipse(cx, cy + 6, 76, 40, 0, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = '#6a5a44'
+          ctx.beginPath(); ctx.ellipse(cx, cy, 70, 34, 0, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = '#7c6a50'
+          ctx.beginPath(); ctx.ellipse(cx, cy - 3, 62, 28, 0, 0, Math.PI * 2); ctx.fill()
+          // Pedestal y el Anillo brillando en el centro
+          ctx.fillStyle = '#3a2e22'
+          ctx.beginPath(); ctx.ellipse(cx, cy - 3, 12, 6, 0, 0, Math.PI * 2); ctx.fill()
+          const gl = 0.45 + 0.35 * Math.sin(st.frameCount * 0.12)
+          ctx.fillStyle = `rgba(232,200,90,${gl * 0.3})`
+          ctx.beginPath(); ctx.arc(cx, cy - 6, 11, 0, Math.PI * 2); ctx.fill()
+          ctx.strokeStyle = `rgba(232,200,90,${gl})`; ctx.lineWidth = 2.5
+          ctx.beginPath(); ctx.arc(cx, cy - 6, 4.5, 0, Math.PI * 2); ctx.stroke()
+          // Miembros sentados alrededor (se omite el personaje del jugador)
+          const seated = COUNCIL_MEMBERS.filter(m => m.key !== p?.char)
+          const N = seated.length
+          seated.forEach((m, i) => {
+            const ang = -Math.PI / 2 + (i / N) * Math.PI * 2
+            const mx = cx + Math.cos(ang) * 98
+            const my = cy + Math.sin(ang) * 56
+            // Silla de madera
+            ctx.fillStyle = '#4a3a2a'
+            ctx.fillRect(mx - 7, my + 4, 14, 6)
+            // Túnica
+            ctx.fillStyle = m.robe
+            ctx.beginPath()
+            ctx.moveTo(mx - 8, my + 8)
+            ctx.quadraticCurveTo(mx - 9, my - 4, mx, my - 9)
+            ctx.quadraticCurveTo(mx + 9, my - 4, mx + 8, my + 8)
+            ctx.closePath(); ctx.fill()
+            // Cabeza
+            ctx.fillStyle = '#e8d4b8'
+            ctx.beginPath(); ctx.arc(mx, my - 12, 5, 0, Math.PI * 2); ctx.fill()
+            // Cabello
+            ctx.fillStyle = m.hair
+            ctx.beginPath(); ctx.arc(mx, my - 13, 5, Math.PI * 0.85, Math.PI * 2.15); ctx.fill()
+            // Nombre
+            ctx.font = 'bold 7px monospace'
+            ctx.fillStyle = '#c8b878'
+            ctx.textAlign = 'center'
+            ctx.fillText(m.name.toUpperCase(), mx, my + 20)
+          })
+          // Etiqueta de la mesa
+          ctx.font = 'bold 8px monospace'
+          ctx.fillStyle = 'rgba(226,200,120,0.85)'
+          ctx.textAlign = 'center'
+          ctx.fillText('EL CONCILIO DE ELROND', cx, cy + 52)
+          // Indicador de interacción al acercarse
+          if (p) {
+            const ddx = COUNCIL_POS.x - p.x, ddy = COUNCIL_POS.y - p.y
+            if (Math.sqrt(ddx * ddx + ddy * ddy) < 3.5 * T) {
+              ctx.font = 'bold 10px monospace'
+              ctx.fillStyle = '#e2c84a'
+              ctx.fillText('[E]', cx, cy - 44 + Math.sin(st.frameCount * 0.1) * 2)
+            }
+          }
+        }
+      }
       // Indicador de misión sobre Elrond
       if (st.quest.stage === 2) {
         const qx = ELROND_POS.x - sx, qy = ELROND_POS.y - sy - 38 + Math.sin(st.frameCount * 0.1) * 3
@@ -4144,6 +4989,11 @@ function GameInner() {
         }
       }
 
+      if ((e.key === 'm' || e.key === 'M') && screenRef.current === 'game' && !S.current.dlg.active && !S.current.regionTransition.active) {
+        e.preventDefault()
+        setWorldMapOpen(o => !o)
+      }
+
       if (e.key === 'Escape') {
         if (S.current?.dlg.active) {
           closeDlg()
@@ -4178,6 +5028,10 @@ function GameInner() {
       window.removeEventListener('keyup', handleKeyUp)
     }
   }, [advanceDlg, doAttack, closeDlg, tryInteract, useItem])
+
+  useEffect(() => {
+    screenRef.current = screen
+  }, [screen])
 
   useEffect(() => {
     if (screen === 'game' && !audioRef.current?.playing) {
@@ -4528,7 +5382,7 @@ function GameInner() {
                         if ((S.current!.p!.gold ?? 0) >= shopItem.price) {
                           S.current!.p!.gold -= shopItem.price
                           S.current!.p!.inv.push(shopItem.id)
-                          log('s', `Comprás ${shopItem.icon} ${shopItem.name} — ${shopItem.price} MC`)
+                          log('s', `Comprás ${shopItem.icon} ${shopItem.name} ��� ${shopItem.price} MC`)
                           notify(`${shopItem.icon} comprado`, '#c8a84b')
                           forceUpdate(n => n + 1)
                         } else {
@@ -4715,6 +5569,74 @@ function GameInner() {
                   </span>
                 )}
               </button>
+
+              <button
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); setWorldMapOpen(v => !v) }}
+                onClick={(e) => { e.preventDefault(); setWorldMapOpen(v => !v) }}
+                className="relative w-12 h-12 rounded-xl bg-[#20180e] border-2 border-[#5a4423] flex items-center justify-center text-lg active:bg-[#2a2012] active:scale-95 transition-all"
+                title="Mapa (M)"
+              >
+                🗺️
+                <span className="absolute -bottom-1 -right-1 px-1 rounded bg-[#5a4423] text-[#f0e6c8] text-[8px] font-bold leading-tight">M</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {screen === 'game' && worldMapOpen && S.current?.p && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'radial-gradient(ellipse at center, rgba(20,16,8,0.92), rgba(6,5,3,0.97))' }}
+          onClick={() => setWorldMapOpen(false)}
+        >
+          <div
+            className="w-full max-w-[560px] rounded-2xl border-2 p-5"
+            style={{ background: 'linear-gradient(160deg, #201a10, #14100a)', borderColor: '#5a4423', boxShadow: '0 0 40px rgba(0,0,0,0.6)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="font-serif text-[#e2c84a] text-lg font-bold tracking-wide">Mapa de la Tierra Media</div>
+              <button onClick={() => setWorldMapOpen(false)} className="text-[#8a7448] hover:text-[#e2c84a] text-sm px-2">✕</button>
+            </div>
+            <p className="text-[#8a7448] text-[11px] mb-4">Selecciona una región descubierta para viajar. Pulsa <span className="text-[#c8a84b] font-bold">M</span> para cerrar.</p>
+
+            <div className="relative flex items-center justify-between gap-2">
+              <div className="absolute left-[8%] right-[8%] top-1/2 h-[2px] -translate-y-1/2" style={{ background: 'repeating-linear-gradient(90deg, #5a4423 0 8px, transparent 8px 14px)' }} />
+              {REGION_ORDER.map((rid) => {
+                const rd = REGIONS[rid]
+                const st = S.current!
+                const isCurrent = st.region === rid
+                const isUnlocked = st.unlocked.includes(rid)
+                const hasBoss = !!REGION_BOSSES[rid]
+                return (
+                  <button
+                    key={rid}
+                    disabled={!isUnlocked || isCurrent}
+                    onClick={() => travelToRegion(rid)}
+                    className="relative z-10 flex-1 flex flex-col items-center gap-2 rounded-xl border-2 p-3 transition-all disabled:cursor-default"
+                    style={{
+                      background: isCurrent ? 'rgba(90,68,35,0.35)' : isUnlocked ? 'rgba(20,26,16,0.9)' : 'rgba(12,12,12,0.85)',
+                      borderColor: isCurrent ? '#e2c84a' : isUnlocked ? '#5a7a3a' : '#2a2a2a',
+                      opacity: isUnlocked ? 1 : 0.5,
+                    }}
+                  >
+                    <div
+                      className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-xl"
+                      style={{ background: rd.ground, borderColor: isCurrent ? '#e2c84a' : '#3a3a2a' }}
+                    >
+                      {isUnlocked ? (rid === 'comarca' ? '🌻' : rid === 'bosque' ? '🕸️' : '🏔️') : '🔒'}
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[11px] font-bold leading-tight" style={{ color: isCurrent ? '#e2c84a' : isUnlocked ? '#d8c89a' : '#6a6a5a' }}>{rd.name}</div>
+                      <div className="text-[9px] leading-tight mt-0.5" style={{ color: '#7a6a48' }}>{isUnlocked ? rd.subtitle : 'Sin descubrir'}</div>
+                    </div>
+                    {isCurrent && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#e2c84a', color: '#1a1408' }}>AQUÍ</span>}
+                    {!isCurrent && isUnlocked && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#3a5a20', color: '#d8f0b0' }}>VIAJAR</span>}
+                    {hasBoss && isUnlocked && <span className="absolute -top-1.5 -right-1.5 text-[10px]" title="Jefe de región">☠</span>}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -4895,12 +5817,29 @@ function GameInner() {
             }
           </p>
 
+          {savedGame && savedGame.char === selectedChar && (
+            <button
+              onClick={() => { setDifficulty(savedGame.difficulty); startGame(selectedChar, 'exploration', savedGame) }}
+              className="px-8 py-3 mb-3 bg-[#5a8a3a] text-[#0e1408] font-bold rounded-lg hover:bg-[#6a9a4a] transition-colors flex flex-col items-center gap-0.5"
+            >
+              <span>CONTINUAR VIAJE</span>
+              <span className="text-[10px] font-normal opacity-80">
+                {REGIONS[savedGame.region].name} · Etapa {savedGame.questStage + 1}
+              </span>
+            </button>
+          )}
+
           <button
-            onClick={() => startGame(selectedChar, selectedMode)}
+            onClick={() => { if (selectedMode === 'exploration') clearSave(); startGame(selectedChar, selectedMode) }}
             className="px-8 py-3 bg-[#c8a84b] text-[#1a1408] font-bold rounded-lg hover:bg-[#d8b85b] transition-colors"
           >
-            COMENZAR AVENTURA
+            {savedGame && savedGame.char === selectedChar ? 'NUEVA PARTIDA' : 'COMENZAR AVENTURA'}
           </button>
+          {savedGame && savedGame.char === selectedChar && (
+            <p className="text-[#6a5a3a] text-[9px] mt-2 text-center max-w-xs">
+              Nueva partida borra tu progreso guardado.
+            </p>
+          )}
           </div>
         </div>
       )}
