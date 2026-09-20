@@ -35,7 +35,7 @@ export default function Landing() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1a1410] via-[#2d2416] to-[#1a1410] text-[#e8dcc8] font-mono overflow-hidden">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-[#1a1410] via-[#2d2416] to-[#1a1410] text-[#e8dcc8] font-mono overflow-x-hidden">
       {/* Animated background */}
       <div className="fixed inset-0 opacity-10 pointer-events-none">
         <div
@@ -48,17 +48,17 @@ export default function Landing() {
         />
       </div>
 
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 py-8">
+      <div className="relative z-10 flex flex-col items-center min-h-[100dvh] px-4 py-8">
         {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold text-[#c8a84b] mb-2 drop-shadow-lg">
+        <div className="text-center mb-8 md:mb-12">
+          <h1 className="text-4xl md:text-5xl font-bold text-[#c8a84b] mb-2 drop-shadow-lg text-balance">
             THE FELLOWSHIP
           </h1>
-          <p className="text-[#a0956b] text-lg">Una aventura en la Tierra Media</p>
+          <p className="text-[#a0956b] text-base md:text-lg text-pretty">Una aventura en la Tierra Media</p>
         </div>
 
         {/* Main Content Container */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full max-w-6xl">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full max-w-6xl">
           {/* Character Selection */}
           <div className="lg:col-span-2">
             <div className="bg-[rgba(45,36,22,0.8)] border-2 border-[#c8a84b] rounded-lg p-6">
