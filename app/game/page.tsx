@@ -4766,7 +4766,8 @@ function GameInner() {
       )}
 
       {screen === 'charsel' && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] flex flex-col items-center justify-center p-4">
+        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto">
+          <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
             TIERRA MEDIA
           </h1>
@@ -4830,15 +4831,17 @@ function GameInner() {
               COMENZAR
             </button>
           )}
+          </div>
         </div>
       )}
 
       {screen === 'diffsel' && selectedChar && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] flex flex-col items-center justify-center p-4">
+        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto">
+          <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
             DIFICULTAD
           </h1>
-          <p className="text-[#6a5a3a] text-sm mb-8">Elige tu desafío</p>
+          <p className="text-[#6a5a3a] text-sm mb-6">Elige tu desafío</p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-2xl mb-8">
             {(['easy', 'normal', 'hard'] as const).map(level => {
@@ -4898,11 +4901,13 @@ function GameInner() {
           >
             COMENZAR AVENTURA
           </button>
+          </div>
         </div>
       )}
 
       {screen === 'pause' && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] flex flex-col items-center justify-center p-4 z-50">
+        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto z-50">
+          <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-3xl font-bold tracking-wider mb-8">
             PAUSA
           </h1>
@@ -4982,6 +4987,7 @@ function GameInner() {
 
           <div className="text-[#6a5a3a] text-xs mt-4">
             {S.current?.p && <div>Dificultad: {difficulty === 'easy' ? '🟢 Fácil' : difficulty === 'normal' ? '🟡 Normal' : '🔴 Difícil'}</div>}
+          </div>
           </div>
         </div>
       )}
