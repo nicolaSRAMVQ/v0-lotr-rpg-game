@@ -257,6 +257,47 @@ interface Nazgul {
   deathFrame: number
   waveNum: number
   webSlow?: number
+  isBoss?: boolean
+  bossName?: string
+  sizeMult?: number
+  summonCd?: number
+}
+
+interface Chest {
+  id: string
+  x: number
+  y: number
+  opened: boolean
+  gold: number
+  item: string | null
+  bob: number
+}
+
+// Orden lineal de las regiones para el mapa mundial
+const REGION_ORDER: RegionId[] = ['comarca', 'bosque', 'rivendell']
+
+// Jefe de cada región (null = refugio sin jefe)
+const REGION_BOSSES: Record<RegionId, { name: string; kind: EnemyKind; hp: number; dmg: number; sizeMult: number; xp: number; gold: number } | null> = {
+  comarca:   { name: 'El Rey Brujo de Angmar', kind: 'nazgul', hp: 70,  dmg: 3, sizeMult: 1.9, xp: 220, gold: 120 },
+  bosque:    { name: 'La Reina Araña',         kind: 'spider', hp: 90,  dmg: 2, sizeMult: 2.2, xp: 280, gold: 160 },
+  rivendell: null,
+}
+
+// Cofres del tesoro por región (posiciones y botín fijos)
+const REGION_CHESTS: Record<RegionId, { id: string; tx: number; ty: number; gold: number; item: string | null }[]> = {
+  comarca: [
+    { id: 'com1', tx: 30, ty: 24, gold: 25, item: 'elixir' },
+    { id: 'com2', tx: 68, ty: 48, gold: 30, item: 'lembas' },
+  ],
+  bosque: [
+    { id: 'bos1', tx: 24, ty: 30, gold: 40, item: 'miruvor' },
+    { id: 'bos2', tx: 70, ty: 44, gold: 45, item: 'elixir' },
+    { id: 'bos3', tx: 52, ty: 22, gold: 35, item: 'lembas' },
+  ],
+  rivendell: [
+    { id: 'riv1', tx: 34, ty: 26, gold: 60, item: 'miruvor' },
+    { id: 'riv2', tx: 66, ty: 30, gold: 70, item: 'elixir' },
+  ],
 }
 
 type EnemyKind = 'nazgul' | 'warg' | 'orc' | 'spider' | 'wight'
@@ -392,6 +433,8 @@ interface Player {
   spellCooldowns: Record<string, number>
   activeEffects: { effect: string; duration: number }[]
   webbed: number
+  xp: number
+  level: number
 }
 
 interface Merchant {
@@ -508,11 +551,14 @@ interface GameState {
   activeMerchant: string | null
   shire: ShireState
   region: RegionId
-  regionTransition: { active: boolean; to: RegionId | null; progress: number; phase: 'out' | 'in' }
+  regionTransition: { active: boolean; to: RegionId | null; progress: number; phase: 'out' | 'in'; fast?: boolean }
   quest: { stage: number }
   sceneNpcs: SceneNpc[]
   roamers: Roamer[]
   forestScene: { ambushTriggered: boolean; ambushCleared: boolean; scoutRescued: boolean }
+  chests: Chest[]
+  unlocked: RegionId[]
+  bossTriggered: Partial<Record<RegionId, boolean>>
 }
 
 const SAVE_KEY = 'lotr-rpg-save-v1'
@@ -529,8 +575,12 @@ interface SaveData {
   questStage: number
   councilDone: boolean
   wave: number
+  xp?: number
+  level?: number
+  unlocked?: RegionId[]
+  bossTriggered?: Partial<Record<RegionId, boolean>>
   savedAt: number
-}
+  }
 
 const SOLID = new Set<TileType>(['tree', 'mill', 'darktree', 'pine', 'water', 'rock', 'rivwater', 'cliff', 'arch'])
 
@@ -594,6 +644,7 @@ function GameInner() {
   const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>('normal')
   const [selectedMode, setSelectedMode] = useState<GameMode>('horde')
   const [savedGame, setSavedGame] = useState<SaveData | null>(null)
+  const [worldMapOpen, setWorldMapOpen] = useState(false)
   const [, forceUpdate] = useState(0)
   const [isCompact, setIsCompact] = useState(false)
   const [invPanelOpen, setInvPanelOpen] = useState(false)
@@ -606,6 +657,7 @@ function GameInner() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const minimapRef = useRef<HTMLCanvasElement>(null)
   const S = useRef<GameState | null>(null)
+  const screenRef = useRef<'charsel' | 'game' | 'dead' | 'gameover' | 'win' | 'diffsel' | 'pause'>('charsel')
   const animRef = useRef<number>(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
@@ -973,6 +1025,30 @@ function GameInner() {
     }
   }, [])
 
+  const spawnChests = useCallback((region: RegionId): Chest[] => {
+    return (REGION_CHESTS[region] || []).map(c => ({
+      id: c.id, x: c.tx * T, y: c.ty * T, opened: false, gold: c.gold, item: c.item, bob: 0,
+    }))
+  }, [])
+
+  const spawnBoss = useCallback((region: RegionId): Nazgul | null => {
+    const def = REGION_BOSSES[region]
+    if (!def) return null
+    const boss = createNazgul(10, def.kind)
+    boss.hp = def.hp
+    boss.maxhp = def.hp
+    boss.dmg = def.dmg * 4
+    boss.spd = boss.spd * 0.9
+    boss.isBoss = true
+    boss.bossName = def.name
+    boss.sizeMult = def.sizeMult
+    boss.summonCd = 360
+    boss.state = 'hunt'
+    boss.x = (WW - 4) * T
+    boss.y = 38 * T
+    return boss
+  }, [createNazgul])
+
   const spawnHeroCompanions = useCallback((playerChar: string): HeroCompanion[] => {
     const HERO_POSITIONS: Record<string, { x: number; y: number; patrol: {x:number;y:number}[] }> = {
       frodo:   { x: 44*T, y: 36*T, patrol: [{x:43*T,y:36*T},{x:45*T,y:36*T},{x:44*T,y:37*T},{x:44*T,y:35*T}] },
@@ -1108,6 +1184,8 @@ function GameInner() {
         spellCooldowns: {},
         activeEffects: [],
       webbed: 0,
+      xp: save ? (save.xp ?? 0) : 0,
+      level: save ? (save.level ?? 1) : 1,
       },
       cam: { x: startX - 200, y: startY - 200 },
       villagers: spawnVillagers(),
@@ -1167,6 +1245,9 @@ function GameInner() {
       sceneNpcs: startRegion === 'comarca' ? [] : spawnSceneNpcs(startRegion),
       roamers: spawnRoamers(startRegion),
       forestScene: { ambushTriggered: startRegion !== 'comarca', ambushCleared: startRegion !== 'comarca', scoutRescued: false },
+      chests: spawnChests(startRegion),
+      unlocked: save?.unlocked?.length ? save.unlocked : REGION_ORDER.slice(0, REGION_ORDER.indexOf(startRegion) + 1),
+      bossTriggered: save?.bossTriggered ? { ...save.bossTriggered } : {},
     }
 
     if (mode === 'exploration') {
@@ -1178,6 +1259,19 @@ function GameInner() {
     if (save) log('s', 'Partida cargada. Tu viaje continúa.')
     setScreen('game')
   }, [buildMap, spawnVillagers, spawnGandalfAlly, spawnHeroCompanions, spawnSceneNpcs, spawnRoamers, log])
+
+  const travelToRegion = useCallback((dest: RegionId) => {
+    const st = S.current
+    if (!st || !st.p) return
+    setWorldMapOpen(false)
+    if (dest === st.region || st.regionTransition.active) return
+    if (!st.unlocked.includes(dest)) {
+      notify('Región no descubierta', '#c04030')
+      return
+    }
+    st.regionTransition = { active: true, to: dest, progress: 0, phase: 'out', fast: true }
+    playSfx('click')
+  }, [])
 
   const saveGame = useCallback(() => {
     const st = S.current
@@ -1196,6 +1290,10 @@ function GameInner() {
         questStage: st.quest.stage,
         councilDone: st.councilDone,
         wave: st.wave,
+        xp: st.p.xp,
+        level: st.p.level,
+        unlocked: st.unlocked,
+        bossTriggered: st.bossTriggered,
         savedAt: Date.now(),
       }
       localStorage.setItem(SAVE_KEY, JSON.stringify(data))
@@ -2192,6 +2290,30 @@ function GameInner() {
   const tryInteract = useCallback(() => {
     if (!S.current || !S.current.p) return
     const p = S.current.p
+    const st = S.current
+
+    // Detectar cofre del tesoro cercano
+    for (const ch of st.chests) {
+      if (ch.opened) continue
+      const dx = ch.x - p.x, dy = ch.y - p.y
+      if (Math.sqrt(dx * dx + dy * dy) < 2 * T) {
+        ch.opened = true
+        p.gold += ch.gold
+        const parts: string[] = [`+${ch.gold} oro`]
+        if (ch.item) {
+          st.inventory.push(ch.item)
+          parts.push(ITEMS[ch.item]?.name ?? ch.item)
+        }
+        log('s', `Cofre abierto: ${parts.join(', ')}.`)
+        notify(`✦ ${parts.join(' · ')} ✦`, '#e0b84b')
+        playSfx('pickup')
+        for (let i = 0; i < 10; i++) {
+          st.parts.push({ x: ch.x, y: ch.y, vx: (Math.random() - 0.5) * 4, vy: -Math.random() * 4, color: '#e0b84b', life: 40, maxLife: 40 })
+        }
+        forceUpdate(n => n + 1)
+        return
+      }
+    }
 
     // Detectar merchant cercano
     if (S.current.region === 'comarca') for (const m of S.current.merchants) {
@@ -2324,8 +2446,9 @@ function GameInner() {
     // ============ TRANSICIÓN ENTRE REGIONES ============
     if (st.regionTransition.active) {
       const rt = st.regionTransition
+      const trSpeed = rt.fast ? 0.08 : 0.04
       if (rt.phase === 'out') {
-        rt.progress += 0.04
+        rt.progress += trSpeed
         if (rt.progress >= 1 && rt.to) {
           // Cambiar región: regenerar mapa y reposicionar
           const dest = rt.to
@@ -2335,9 +2458,12 @@ function GameInner() {
           // Poblar NPCs de escena e itinerantes propios de la región
           st.sceneNpcs = spawnSceneNpcs(dest)
           st.roamers = spawnRoamers(dest)
+          st.chests = spawnChests(dest)
           if (dest === 'bosque') {
             st.forestScene = { ambushTriggered: false, ambushCleared: false, scoutRescued: st.forestScene.scoutRescued }
           }
+          // Desbloquear región para el mapa mundial
+          if (!st.unlocked.includes(dest)) st.unlocked = [...st.unlocked, dest]
           // Reposicionar al jugador al borde opuesto
           if (goingForward) {
             p.x = 3 * T; p.y = 38 * T   // entra por el oeste
@@ -2421,6 +2547,43 @@ function GameInner() {
           fs.ambushCleared = true
           log('s', 'El bosque vuelve a quedar en silencio. Has despejado la senda.')
           notify('✦ Senda despejada ✦', '#7aa050')
+        }
+      }
+    }
+
+    // ============ JEFE DE REGIÓN ============
+    // Aparece al acercarse al borde este de una región con jefe, y bloquea el avance hasta caer.
+    const bossDef = REGION_BOSSES[st.region]
+    if (bossDef && !st.bossTriggered[st.region]) {
+      const bossAlive = st.nazgulList.some(n => n.isBoss && n.hp > 0)
+      if (!bossAlive && p.x > (WW - 12) * T) {
+        const boss = spawnBoss(st.region)
+        if (boss) {
+          boss.y = p.y
+          st.nazgulList.push(boss)
+          log('e', `⚔ ${boss.bossName} bloquea tu camino.`)
+          notify(`☠ ${boss.bossName}`, '#8a1030')
+          playSfx('damage')
+          st.screenFlash = 10
+        }
+      }
+    }
+    // Zumbido y summon del jefe mientras vive
+    for (const b of st.nazgulList) {
+      if (!b.isBoss || b.hp <= 0 || b.state === 'dying') continue
+      if (b.summonCd !== undefined) {
+        b.summonCd--
+        if (b.summonCd <= 0) {
+          b.summonCd = 420
+          const minions = b.kind === 'spider' ? 'spider' : (REGIONS[st.region].enemies[0] || 'orc')
+          for (let i = 0; i < 2; i++) {
+            const m = createNazgul(st.wave, minions as EnemyKind)
+            m.x = b.x + (Math.random() - 0.5) * 4 * T
+            m.y = b.y + (Math.random() - 0.5) * 4 * T
+            m.state = 'chase_player'
+            st.nazgulList.push(m)
+          }
+          notify(`${b.bossName} invoca esbirros`, '#8a1030')
         }
       }
     }
@@ -3001,9 +3164,10 @@ function GameInner() {
         if (naz.deathFrame === 80) {
           st.groundMarks.push({ x: naz.x, y: naz.y, alpha: 0.6 })
           if (st.p) {
-            st.p.xp += XP_REWARDS.nazgul
-            const nextLvl = st.p.level
-            if (nextLvl < XP_TABLE.length && st.p.xp >= XP_TABLE[nextLvl]) {
+            const xpGain = naz.isBoss ? (REGION_BOSSES[st.region]?.xp ?? 200) : XP_REWARDS.nazgul
+            st.p.xp += xpGain
+            // Puede subir varios niveles de golpe (útil para jefes)
+            while (st.p.level < XP_TABLE.length && st.p.xp >= XP_TABLE[st.p.level]) {
               st.p.level++
               st.p.maxhp += 1
               st.p.hp = Math.min(st.p.hp + 1, st.p.maxhp)
@@ -3011,9 +3175,17 @@ function GameInner() {
               log('e', `¡NIVEL ${st.p.level}! +1 HP máx, +1 DMG`)
               notify(`⭐ NIVEL ${st.p.level}`, '#c8a84b')
             }
+            if (naz.isBoss) {
+              const bg = REGION_BOSSES[st.region]?.gold ?? 100
+              st.p.gold += bg
+              st.bossTriggered[st.region] = true
+              log('e', `¡${naz.bossName ?? 'El jefe'} ha caído! +${bg} oro`)
+              notify(`☠ ${naz.bossName ?? 'JEFE'} DERROTADO`, '#e0b84b')
+              saveGame()
+            }
           }
-          const drops = ['lembas', 'miruvor']
-          const numDrops = 1 + Math.floor(Math.random() * 2)
+          const drops = naz.isBoss ? ['miruvor', 'elixir', 'miruvor'] : ['lembas', 'miruvor']
+          const numDrops = naz.isBoss ? 4 : 1 + Math.floor(Math.random() * 2)
           for (let i = 0; i < numDrops; i++) {
             st.droppedItems.push({
               x: naz.x + (Math.random() - 0.5) * T * 2,
@@ -4408,20 +4580,48 @@ function GameInner() {
           ctx.globalAlpha = 0.5
         }
 
+        const bossScale = naz.isBoss ? (naz.sizeMult ?? 1.8) : 1
+        if (naz.isBoss) {
+          // Aura oscura pulsante del jefe
+          const pulse = 0.5 + Math.sin(st.frameCount * 0.1) * 0.15
+          const grd = ctx.createRadialGradient(nx, ny, 4, nx, ny, 34 * bossScale)
+          grd.addColorStop(0, `rgba(120,10,40,${pulse * 0.5})`)
+          grd.addColorStop(1, 'rgba(120,10,40,0)')
+          ctx.fillStyle = grd
+          ctx.beginPath(); ctx.arc(nx, ny, 34 * bossScale, 0, Math.PI * 2); ctx.fill()
+          ctx.save()
+          ctx.translate(nx, ny); ctx.scale(bossScale, bossScale); ctx.translate(-nx, -ny)
+        }
         if (naz.kind === 'nazgul') drawSprite(ctx, 'nazgul', naz.dir, naz.frame, nx, ny, 2.2)
         else drawCreature(ctx, naz.kind, nx, ny, naz.frame, naz.dir)
+        if (naz.isBoss) ctx.restore()
         ctx.globalAlpha = 1
 
         const ed = ENEMY_DEFS[naz.kind]
-        ctx.fillStyle = '#2a0a0a'
-        ctx.fillRect(nx - 20, ny - 45, 40, 6)
-        ctx.fillStyle = ed.accent
-        ctx.fillRect(nx - 19, ny - 44, 38 * Math.max(0, naz.hp / naz.maxhp), 4)
+        if (naz.isBoss) {
+          // Barra de vida grande del jefe
+          const bw = 70
+          ctx.fillStyle = 'rgba(0,0,0,0.6)'
+          ctx.fillRect(nx - bw / 2 - 2, ny - 58, bw + 4, 9)
+          ctx.fillStyle = '#2a0a0a'
+          ctx.fillRect(nx - bw / 2, ny - 57, bw, 7)
+          ctx.fillStyle = '#c01838'
+          ctx.fillRect(nx - bw / 2, ny - 57, bw * Math.max(0, naz.hp / naz.maxhp), 7)
+          ctx.font = 'bold 10px monospace'
+          ctx.fillStyle = '#e0b84b'
+          ctx.textAlign = 'center'
+          ctx.fillText((naz.bossName ?? 'JEFE').toUpperCase(), nx, ny - 62)
+        } else {
+          ctx.fillStyle = '#2a0a0a'
+          ctx.fillRect(nx - 20, ny - 45, 40, 6)
+          ctx.fillStyle = ed.accent
+          ctx.fillRect(nx - 19, ny - 44, 38 * Math.max(0, naz.hp / naz.maxhp), 4)
 
-        ctx.font = 'bold 8px monospace'
-        ctx.fillStyle = naz.kind === 'wight' ? '#aaccdd' : '#ff6040'
-        ctx.textAlign = 'center'
-        ctx.fillText(ed.name.toUpperCase(), nx, ny + 25)
+          ctx.font = 'bold 8px monospace'
+          ctx.fillStyle = naz.kind === 'wight' ? '#aaccdd' : '#ff6040'
+          ctx.textAlign = 'center'
+          ctx.fillText(ed.name.toUpperCase(), nx, ny + 25)
+        }
 
         // Telaraña ralentizadora si está afectado
         if (naz.webSlow && naz.webSlow > 0) {
@@ -4789,6 +4989,11 @@ function GameInner() {
         }
       }
 
+      if ((e.key === 'm' || e.key === 'M') && screenRef.current === 'game' && !S.current.dlg.active && !S.current.regionTransition.active) {
+        e.preventDefault()
+        setWorldMapOpen(o => !o)
+      }
+
       if (e.key === 'Escape') {
         if (S.current?.dlg.active) {
           closeDlg()
@@ -4823,6 +5028,10 @@ function GameInner() {
       window.removeEventListener('keyup', handleKeyUp)
     }
   }, [advanceDlg, doAttack, closeDlg, tryInteract, useItem])
+
+  useEffect(() => {
+    screenRef.current = screen
+  }, [screen])
 
   useEffect(() => {
     if (screen === 'game' && !audioRef.current?.playing) {
@@ -5360,6 +5569,74 @@ function GameInner() {
                   </span>
                 )}
               </button>
+
+              <button
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); setWorldMapOpen(v => !v) }}
+                onClick={(e) => { e.preventDefault(); setWorldMapOpen(v => !v) }}
+                className="relative w-12 h-12 rounded-xl bg-[#20180e] border-2 border-[#5a4423] flex items-center justify-center text-lg active:bg-[#2a2012] active:scale-95 transition-all"
+                title="Mapa (M)"
+              >
+                🗺️
+                <span className="absolute -bottom-1 -right-1 px-1 rounded bg-[#5a4423] text-[#f0e6c8] text-[8px] font-bold leading-tight">M</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {screen === 'game' && worldMapOpen && S.current?.p && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'radial-gradient(ellipse at center, rgba(20,16,8,0.92), rgba(6,5,3,0.97))' }}
+          onClick={() => setWorldMapOpen(false)}
+        >
+          <div
+            className="w-full max-w-[560px] rounded-2xl border-2 p-5"
+            style={{ background: 'linear-gradient(160deg, #201a10, #14100a)', borderColor: '#5a4423', boxShadow: '0 0 40px rgba(0,0,0,0.6)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="font-serif text-[#e2c84a] text-lg font-bold tracking-wide">Mapa de la Tierra Media</div>
+              <button onClick={() => setWorldMapOpen(false)} className="text-[#8a7448] hover:text-[#e2c84a] text-sm px-2">✕</button>
+            </div>
+            <p className="text-[#8a7448] text-[11px] mb-4">Selecciona una región descubierta para viajar. Pulsa <span className="text-[#c8a84b] font-bold">M</span> para cerrar.</p>
+
+            <div className="relative flex items-center justify-between gap-2">
+              <div className="absolute left-[8%] right-[8%] top-1/2 h-[2px] -translate-y-1/2" style={{ background: 'repeating-linear-gradient(90deg, #5a4423 0 8px, transparent 8px 14px)' }} />
+              {REGION_ORDER.map((rid) => {
+                const rd = REGIONS[rid]
+                const st = S.current!
+                const isCurrent = st.region === rid
+                const isUnlocked = st.unlocked.includes(rid)
+                const hasBoss = !!REGION_BOSSES[rid]
+                return (
+                  <button
+                    key={rid}
+                    disabled={!isUnlocked || isCurrent}
+                    onClick={() => travelToRegion(rid)}
+                    className="relative z-10 flex-1 flex flex-col items-center gap-2 rounded-xl border-2 p-3 transition-all disabled:cursor-default"
+                    style={{
+                      background: isCurrent ? 'rgba(90,68,35,0.35)' : isUnlocked ? 'rgba(20,26,16,0.9)' : 'rgba(12,12,12,0.85)',
+                      borderColor: isCurrent ? '#e2c84a' : isUnlocked ? '#5a7a3a' : '#2a2a2a',
+                      opacity: isUnlocked ? 1 : 0.5,
+                    }}
+                  >
+                    <div
+                      className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-xl"
+                      style={{ background: rd.ground, borderColor: isCurrent ? '#e2c84a' : '#3a3a2a' }}
+                    >
+                      {isUnlocked ? (rid === 'comarca' ? '🌻' : rid === 'bosque' ? '🕸️' : '🏔️') : '🔒'}
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[11px] font-bold leading-tight" style={{ color: isCurrent ? '#e2c84a' : isUnlocked ? '#d8c89a' : '#6a6a5a' }}>{rd.name}</div>
+                      <div className="text-[9px] leading-tight mt-0.5" style={{ color: '#7a6a48' }}>{isUnlocked ? rd.subtitle : 'Sin descubrir'}</div>
+                    </div>
+                    {isCurrent && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#e2c84a', color: '#1a1408' }}>AQUÍ</span>}
+                    {!isCurrent && isUnlocked && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#3a5a20', color: '#d8f0b0' }}>VIAJAR</span>}
+                    {hasBoss && isUnlocked && <span className="absolute -top-1.5 -right-1.5 text-[10px]" title="Jefe de región">☠</span>}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
