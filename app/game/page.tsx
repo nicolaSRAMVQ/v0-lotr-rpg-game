@@ -2301,8 +2301,12 @@ function GameInner() {
         p.gold += ch.gold
         const parts: string[] = [`+${ch.gold} oro`]
         if (ch.item) {
-          st.inventory.push(ch.item)
-          parts.push(ITEMS[ch.item]?.name ?? ch.item)
+          if (p.inv.length < 5) {
+            p.inv.push(ch.item)
+            parts.push(`${ITEMS[ch.item]?.icon ?? ''} ${ch.item}`)
+          } else {
+            parts.push('inventario lleno')
+          }
         }
         log('s', `Cofre abierto: ${parts.join(', ')}.`)
         notify(`✦ ${parts.join(' · ')} ✦`, '#e0b84b')
@@ -3663,6 +3667,38 @@ function GameInner() {
     ctx.restore()
   }, [])
 
+  const groundTexRef = useRef<Record<string, HTMLImageElement>>({})
+  useEffect(() => {
+    for (const n of ['ground-comarca', 'ground-bosque', 'ground-rivendel', 'ground-path']) {
+      const img = new Image()
+      img.src = `/images/textures/${n}.png`
+      img.onload = () => { groundTexRef.current[n] = img }
+    }
+  }, [])
+
+  // Dibuja el suelo con la textura pixel art de la región (o del camino), alineada a
+  // coordenadas de mundo para que repita sin costuras; cae al color plano si no cargó.
+  const drawGround = useCallback((
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    kind: 'region' | 'path',
+    fallback: string
+  ) => {
+    const key = kind === 'path' ? 'ground-path' : `ground-${S.current?.region ?? 'comarca'}`
+    const tex = groundTexRef.current[key]
+    if (tex) {
+      ctx.imageSmoothingEnabled = false
+      const cell = tex.width / 8
+      ctx.drawImage(tex, (((tx % 8) + 8) % 8) * cell, (((ty % 8) + 8) % 8) * (tex.height / 8), cell, tex.height / 8, x, y, T, T)
+    } else {
+      ctx.fillStyle = fallback
+      ctx.fillRect(x, y, T, T)
+    }
+  }, [])
+
   const drawTile = useCallback((
     ctx: CanvasRenderingContext2D,
     tx: number,
@@ -3675,19 +3711,13 @@ function GameInner() {
 
     switch (tile.type) {
       case 'grass':
-        ctx.fillStyle = tile.variant === 0 ? '#2d3d1a' : '#354820'
-        ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', tile.variant === 0 ? '#2d3d1a' : '#354820')
         break
       case 'path':
-        ctx.fillStyle = '#c8b46e'
-        ctx.fillRect(x, y, T, T)
-        ctx.fillStyle = '#b8a45e'
-        ctx.fillRect(x + 2, y + 2, 4, 4)
-        ctx.fillRect(x + 20, y + 14, 6, 6)
+        drawGround(ctx, tx, ty, x, y, 'path', '#c8b46e')
         break
       case 'tree':
-        ctx.fillStyle = '#354820'
-        ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#354820')
         ctx.fillStyle = '#5a3010'
         ctx.fillRect(x + 12, y + 18, 8, 14)
         ctx.fillStyle = '#1a4010'
@@ -3700,8 +3730,7 @@ function GameInner() {
         ctx.fill()
         break
       case 'flower':
-        ctx.fillStyle = tile.variant === 0 ? '#2d3d1a' : '#354820'
-        ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', tile.variant === 0 ? '#2d3d1a' : '#354820')
         ctx.fillStyle = '#e8a0b0'
         ctx.beginPath()
         ctx.arc(x + 8, y + 12, 3, 0, Math.PI * 2)
@@ -3712,24 +3741,27 @@ function GameInner() {
         ctx.fill()
         break
       case 'yard':
-        ctx.fillStyle = '#3a4818'
+        drawGround(ctx, tx, ty, x, y, 'region', '#3a4818')
+        ctx.fillStyle = 'rgba(20,18,6,0.28)'
         ctx.fillRect(x, y, T, T)
         break
       case 'door':
         // El umbral de tierra; el agujero-hobbit 3D se dibuja encima en la capa de estructuras
-        ctx.fillStyle = '#3a4818'
+        drawGround(ctx, tx, ty, x, y, 'region', '#3a4818')
+        ctx.fillStyle = 'rgba(20,18,6,0.28)'
         ctx.fillRect(x, y, T, T)
         ctx.fillStyle = '#5a4a2a'
         ctx.fillRect(x + 8, y + 22, 16, 8)
         break
       case 'mill':
         // Suelo bajo el molino; el molino 3D se dibuja en la capa de estructuras
-        ctx.fillStyle = '#3a4818'
+        drawGround(ctx, tx, ty, x, y, 'region', '#3a4818')
+        ctx.fillStyle = 'rgba(20,18,6,0.28)'
         ctx.fillRect(x, y, T, T)
         break
       // ===== BOSQUE CERRADO =====
       case 'darktree':
-        ctx.fillStyle = '#1e2a16'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#1e2a16')
         ctx.fillStyle = '#3a2818'; ctx.fillRect(x + 13, y + 18, 6, 14)
         ctx.fillStyle = '#1a2e14'
         ctx.beginPath(); ctx.arc(x + 16, y + 14, 15, 0, Math.PI * 2); ctx.fill()
@@ -3738,14 +3770,14 @@ function GameInner() {
         ctx.beginPath(); ctx.arc(x + 21, y + 13, 7, 0, Math.PI * 2); ctx.fill()
         break
       case 'pine':
-        ctx.fillStyle = '#1e2a16'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#1e2a16')
         ctx.fillStyle = '#3a2818'; ctx.fillRect(x + 14, y + 22, 4, 10)
         ctx.fillStyle = '#1f3a1c'
         ctx.beginPath(); ctx.moveTo(x + 16, y + 2); ctx.lineTo(x + 5, y + 18); ctx.lineTo(x + 27, y + 18); ctx.closePath(); ctx.fill()
         ctx.beginPath(); ctx.moveTo(x + 16, y + 10); ctx.lineTo(x + 7, y + 26); ctx.lineTo(x + 25, y + 26); ctx.closePath(); ctx.fill()
         break
       case 'autumntree':
-        ctx.fillStyle = tile.variant ? '#2a3a1e' : '#34543a'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', tile.variant ? '#2a3a1e' : '#34543a')
         ctx.fillStyle = '#4a3018'; ctx.fillRect(x + 14, y + 18, 5, 14)
         ctx.fillStyle = '#c87028'
         ctx.beginPath(); ctx.arc(x + 16, y + 13, 13, 0, Math.PI * 2); ctx.fill()
@@ -3754,14 +3786,14 @@ function GameInner() {
         ctx.beginPath(); ctx.arc(x + 21, y + 12, 5, 0, Math.PI * 2); ctx.fill()
         break
       case 'leaves':
-        ctx.fillStyle = '#24331a'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#24331a')
         ctx.fillStyle = 'rgba(180,120,50,0.5)'
         ctx.beginPath(); ctx.arc(x + 8, y + 10, 3, 0, Math.PI * 2); ctx.fill()
         ctx.beginPath(); ctx.arc(x + 22, y + 20, 3, 0, Math.PI * 2); ctx.fill()
         ctx.beginPath(); ctx.arc(x + 16, y + 25, 2.5, 0, Math.PI * 2); ctx.fill()
         break
       case 'rock':
-        ctx.fillStyle = '#2a3a1e'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#2a3a1e')
         ctx.fillStyle = '#6a6258'
         ctx.beginPath(); ctx.ellipse(x + 16, y + 20, 11, 8, 0, 0, Math.PI * 2); ctx.fill()
         ctx.fillStyle = '#8a8278'
@@ -3808,14 +3840,14 @@ function GameInner() {
         break
       case 'portal':
         // Marca de transición entre regiones (brillo suave)
-        ctx.fillStyle = '#3a4818'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#3a4818')
         ctx.fillStyle = 'rgba(255,230,150,0.18)'
         ctx.fillRect(x, y, T, T)
         ctx.strokeStyle = 'rgba(255,220,120,0.4)'; ctx.lineWidth = 1
         ctx.strokeRect(x + 2, y + 2, T - 4, T - 4)
         break
     }
-  }, [])
+  }, [drawGround])
   // Dibuja un agujero-hobbit como colina abovedada con puerta redonda, ventanas
   // iluminadas, chimenea con humo animado. cx = centro X en pantalla, groundY = línea de suelo.
   const drawHobbitHole = useCallback((
