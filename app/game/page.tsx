@@ -5688,7 +5688,15 @@ function GameInner() {
       )}
 
       {screen === 'charsel' && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto">
+        <div
+          className="absolute inset-0 overflow-y-auto"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(10,8,4,0.55), rgba(10,8,4,0.88) 55%, rgba(10,8,4,0.94)), url(/images/scenes/charsel-shire.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
             TIERRA MEDIA
@@ -5758,7 +5766,15 @@ function GameInner() {
       )}
 
       {screen === 'diffsel' && selectedChar && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto">
+        <div
+          className="absolute inset-0 overflow-y-auto"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(10,8,4,0.55), rgba(10,8,4,0.88) 55%, rgba(10,8,4,0.94)), url(/images/scenes/diffsel-rivendell.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
             DIFICULTAD
@@ -5845,7 +5861,15 @@ function GameInner() {
       )}
 
       {screen === 'pause' && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto z-50">
+        <div
+          className="absolute inset-0 overflow-y-auto z-50"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(10,8,4,0.9), rgba(10,8,4,0.95)), url(/images/scenes/charsel-shire.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-3xl font-bold tracking-wider mb-8">
             PAUSA
@@ -5932,7 +5956,15 @@ function GameInner() {
       )}
 
       {screen === 'dead' && (
-        <div className="absolute inset-0 bg-[rgba(60,5,5,0.93)] flex flex-col items-center justify-center">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(60,5,5,0.6), rgba(30,4,4,0.88)), url(/images/scenes/dead-mist.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <h1 className="text-[#c82020] text-3xl font-bold mb-4">HAS CAIDO</h1>
           <p className="text-[#8a4040] text-sm mb-6">
             Pero la esperanza no se ha perdido...
@@ -5947,7 +5979,15 @@ function GameInner() {
       )}
 
       {screen === 'gameover' && (
-        <div className="absolute inset-0 bg-[rgba(5,2,2,0.97)] flex flex-col items-center justify-center p-4">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center p-4"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(5,2,2,0.6), rgba(5,2,2,0.9)), url(/images/scenes/gameover-dark.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <div className="text-[#4a1010] text-xs tracking-widest mb-2">
             LA COMARCA HA CAIDO
           </div>
@@ -5967,7 +6007,15 @@ function GameInner() {
       )}
 
       {screen === 'win' && (
-        <div className="absolute inset-0 bg-[rgba(4,30,20,0.96)] flex flex-col items-center justify-center p-4">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center p-4"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(4,30,20,0.55), rgba(4,20,14,0.88)), url(/images/scenes/win-dawn.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <h1 className="text-[#c8a84b] text-3xl font-bold mb-4">VICTORIA</h1>
           <p className="text-[#5a8a3a] text-lg mb-2">
             Aldeanos salvados: {savedCount}/8
