@@ -5591,15 +5591,30 @@ function GameInner() {
           onClick={() => setWorldMapOpen(false)}
         >
           <div
-            className="w-full max-w-[560px] rounded-2xl border-2 p-5"
-            style={{ background: 'linear-gradient(160deg, #201a10, #14100a)', borderColor: '#5a4423', boxShadow: '0 0 40px rgba(0,0,0,0.6)' }}
+            className="relative w-full max-w-[560px] rounded-2xl border-2 p-5 overflow-hidden"
+            style={{ borderColor: '#5a4423', boxShadow: '0 0 40px rgba(0,0,0,0.6)' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-1">
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{
+                backgroundImage: "url('/images/scenes/worldmap-parchment.png')",
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                imageRendering: 'pixelated',
+              }}
+            />
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{ background: 'linear-gradient(160deg, rgba(32,26,16,0.82), rgba(20,16,10,0.9))' }}
+            />
+            <div className="relative z-10 flex items-center justify-between mb-1">
               <div className="font-serif text-[#e2c84a] text-lg font-bold tracking-wide">Mapa de la Tierra Media</div>
-              <button onClick={() => setWorldMapOpen(false)} className="text-[#8a7448] hover:text-[#e2c84a] text-sm px-2">✕</button>
+              <button onClick={() => setWorldMapOpen(false)} className="text-[#b89a5e] hover:text-[#e2c84a] text-sm px-2">✕</button>
             </div>
-            <p className="text-[#8a7448] text-[11px] mb-4">Selecciona una región descubierta para viajar. Pulsa <span className="text-[#c8a84b] font-bold">M</span> para cerrar.</p>
+            <p className="relative z-10 text-[#b89a5e] text-[11px] mb-4">Selecciona una región descubierta para viajar. Pulsa <span className="text-[#e2c84a] font-bold">M</span> para cerrar.</p>
 
             <div className="relative flex items-center justify-between gap-2">
               <div className="absolute left-[8%] right-[8%] top-1/2 h-[2px] -translate-y-1/2" style={{ background: 'repeating-linear-gradient(90deg, #5a4423 0 8px, transparent 8px 14px)' }} />
@@ -5622,10 +5637,17 @@ function GameInner() {
                     }}
                   >
                     <div
-                      className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-xl"
-                      style={{ background: rd.ground, borderColor: isCurrent ? '#e2c84a' : '#3a3a2a' }}
+                      className="w-14 h-14 rounded-lg border-2 overflow-hidden flex items-center justify-center text-xl"
+                      style={{
+                        borderColor: isCurrent ? '#e2c84a' : '#3a3a2a',
+                        backgroundImage: `url('/images/scenes/region-${rid}.png')`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        imageRendering: 'pixelated',
+                        filter: isUnlocked ? 'none' : 'grayscale(1) brightness(0.4)',
+                      }}
                     >
-                      {isUnlocked ? (rid === 'comarca' ? '🌻' : rid === 'bosque' ? '🕸️' : '🏔️') : '🔒'}
+                      {!isUnlocked && <span className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">🔒</span>}
                     </div>
                     <div className="text-center">
                       <div className="text-[11px] font-bold leading-tight" style={{ color: isCurrent ? '#e2c84a' : isUnlocked ? '#d8c89a' : '#6a6a5a' }}>{rd.name}</div>
