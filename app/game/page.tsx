@@ -2301,8 +2301,12 @@ function GameInner() {
         p.gold += ch.gold
         const parts: string[] = [`+${ch.gold} oro`]
         if (ch.item) {
-          st.inventory.push(ch.item)
-          parts.push(ITEMS[ch.item]?.name ?? ch.item)
+          if (p.inv.length < 5) {
+            p.inv.push(ch.item)
+            parts.push(`${ITEMS[ch.item]?.icon ?? ''} ${ch.item}`)
+          } else {
+            parts.push('inventario lleno')
+          }
         }
         log('s', `Cofre abierto: ${parts.join(', ')}.`)
         notify(`✦ ${parts.join(' · ')} ✦`, '#e0b84b')
@@ -3663,6 +3667,38 @@ function GameInner() {
     ctx.restore()
   }, [])
 
+  const groundTexRef = useRef<Record<string, HTMLImageElement>>({})
+  useEffect(() => {
+    for (const n of ['ground-comarca', 'ground-bosque', 'ground-rivendel', 'ground-path']) {
+      const img = new Image()
+      img.src = `/images/textures/${n}.png`
+      img.onload = () => { groundTexRef.current[n] = img }
+    }
+  }, [])
+
+  // Dibuja el suelo con la textura pixel art de la región (o del camino), alineada a
+  // coordenadas de mundo para que repita sin costuras; cae al color plano si no cargó.
+  const drawGround = useCallback((
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    kind: 'region' | 'path',
+    fallback: string
+  ) => {
+    const key = kind === 'path' ? 'ground-path' : `ground-${S.current?.region ?? 'comarca'}`
+    const tex = groundTexRef.current[key]
+    if (tex) {
+      ctx.imageSmoothingEnabled = false
+      const cell = tex.width / 8
+      ctx.drawImage(tex, (((tx % 8) + 8) % 8) * cell, (((ty % 8) + 8) % 8) * (tex.height / 8), cell, tex.height / 8, x, y, T, T)
+    } else {
+      ctx.fillStyle = fallback
+      ctx.fillRect(x, y, T, T)
+    }
+  }, [])
+
   const drawTile = useCallback((
     ctx: CanvasRenderingContext2D,
     tx: number,
@@ -3675,19 +3711,13 @@ function GameInner() {
 
     switch (tile.type) {
       case 'grass':
-        ctx.fillStyle = tile.variant === 0 ? '#2d3d1a' : '#354820'
-        ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', tile.variant === 0 ? '#2d3d1a' : '#354820')
         break
       case 'path':
-        ctx.fillStyle = '#c8b46e'
-        ctx.fillRect(x, y, T, T)
-        ctx.fillStyle = '#b8a45e'
-        ctx.fillRect(x + 2, y + 2, 4, 4)
-        ctx.fillRect(x + 20, y + 14, 6, 6)
+        drawGround(ctx, tx, ty, x, y, 'path', '#c8b46e')
         break
       case 'tree':
-        ctx.fillStyle = '#354820'
-        ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#354820')
         ctx.fillStyle = '#5a3010'
         ctx.fillRect(x + 12, y + 18, 8, 14)
         ctx.fillStyle = '#1a4010'
@@ -3700,8 +3730,7 @@ function GameInner() {
         ctx.fill()
         break
       case 'flower':
-        ctx.fillStyle = tile.variant === 0 ? '#2d3d1a' : '#354820'
-        ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', tile.variant === 0 ? '#2d3d1a' : '#354820')
         ctx.fillStyle = '#e8a0b0'
         ctx.beginPath()
         ctx.arc(x + 8, y + 12, 3, 0, Math.PI * 2)
@@ -3712,24 +3741,27 @@ function GameInner() {
         ctx.fill()
         break
       case 'yard':
-        ctx.fillStyle = '#3a4818'
+        drawGround(ctx, tx, ty, x, y, 'region', '#3a4818')
+        ctx.fillStyle = 'rgba(20,18,6,0.28)'
         ctx.fillRect(x, y, T, T)
         break
       case 'door':
         // El umbral de tierra; el agujero-hobbit 3D se dibuja encima en la capa de estructuras
-        ctx.fillStyle = '#3a4818'
+        drawGround(ctx, tx, ty, x, y, 'region', '#3a4818')
+        ctx.fillStyle = 'rgba(20,18,6,0.28)'
         ctx.fillRect(x, y, T, T)
         ctx.fillStyle = '#5a4a2a'
         ctx.fillRect(x + 8, y + 22, 16, 8)
         break
       case 'mill':
         // Suelo bajo el molino; el molino 3D se dibuja en la capa de estructuras
-        ctx.fillStyle = '#3a4818'
+        drawGround(ctx, tx, ty, x, y, 'region', '#3a4818')
+        ctx.fillStyle = 'rgba(20,18,6,0.28)'
         ctx.fillRect(x, y, T, T)
         break
       // ===== BOSQUE CERRADO =====
       case 'darktree':
-        ctx.fillStyle = '#1e2a16'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#1e2a16')
         ctx.fillStyle = '#3a2818'; ctx.fillRect(x + 13, y + 18, 6, 14)
         ctx.fillStyle = '#1a2e14'
         ctx.beginPath(); ctx.arc(x + 16, y + 14, 15, 0, Math.PI * 2); ctx.fill()
@@ -3738,14 +3770,14 @@ function GameInner() {
         ctx.beginPath(); ctx.arc(x + 21, y + 13, 7, 0, Math.PI * 2); ctx.fill()
         break
       case 'pine':
-        ctx.fillStyle = '#1e2a16'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#1e2a16')
         ctx.fillStyle = '#3a2818'; ctx.fillRect(x + 14, y + 22, 4, 10)
         ctx.fillStyle = '#1f3a1c'
         ctx.beginPath(); ctx.moveTo(x + 16, y + 2); ctx.lineTo(x + 5, y + 18); ctx.lineTo(x + 27, y + 18); ctx.closePath(); ctx.fill()
         ctx.beginPath(); ctx.moveTo(x + 16, y + 10); ctx.lineTo(x + 7, y + 26); ctx.lineTo(x + 25, y + 26); ctx.closePath(); ctx.fill()
         break
       case 'autumntree':
-        ctx.fillStyle = tile.variant ? '#2a3a1e' : '#34543a'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', tile.variant ? '#2a3a1e' : '#34543a')
         ctx.fillStyle = '#4a3018'; ctx.fillRect(x + 14, y + 18, 5, 14)
         ctx.fillStyle = '#c87028'
         ctx.beginPath(); ctx.arc(x + 16, y + 13, 13, 0, Math.PI * 2); ctx.fill()
@@ -3754,14 +3786,14 @@ function GameInner() {
         ctx.beginPath(); ctx.arc(x + 21, y + 12, 5, 0, Math.PI * 2); ctx.fill()
         break
       case 'leaves':
-        ctx.fillStyle = '#24331a'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#24331a')
         ctx.fillStyle = 'rgba(180,120,50,0.5)'
         ctx.beginPath(); ctx.arc(x + 8, y + 10, 3, 0, Math.PI * 2); ctx.fill()
         ctx.beginPath(); ctx.arc(x + 22, y + 20, 3, 0, Math.PI * 2); ctx.fill()
         ctx.beginPath(); ctx.arc(x + 16, y + 25, 2.5, 0, Math.PI * 2); ctx.fill()
         break
       case 'rock':
-        ctx.fillStyle = '#2a3a1e'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#2a3a1e')
         ctx.fillStyle = '#6a6258'
         ctx.beginPath(); ctx.ellipse(x + 16, y + 20, 11, 8, 0, 0, Math.PI * 2); ctx.fill()
         ctx.fillStyle = '#8a8278'
@@ -3808,14 +3840,14 @@ function GameInner() {
         break
       case 'portal':
         // Marca de transición entre regiones (brillo suave)
-        ctx.fillStyle = '#3a4818'; ctx.fillRect(x, y, T, T)
+        drawGround(ctx, tx, ty, x, y, 'region', '#3a4818')
         ctx.fillStyle = 'rgba(255,230,150,0.18)'
         ctx.fillRect(x, y, T, T)
         ctx.strokeStyle = 'rgba(255,220,120,0.4)'; ctx.lineWidth = 1
         ctx.strokeRect(x + 2, y + 2, T - 4, T - 4)
         break
     }
-  }, [])
+  }, [drawGround])
   // Dibuja un agujero-hobbit como colina abovedada con puerta redonda, ventanas
   // iluminadas, chimenea con humo animado. cx = centro X en pantalla, groundY = línea de suelo.
   const drawHobbitHole = useCallback((
@@ -5591,15 +5623,30 @@ function GameInner() {
           onClick={() => setWorldMapOpen(false)}
         >
           <div
-            className="w-full max-w-[560px] rounded-2xl border-2 p-5"
-            style={{ background: 'linear-gradient(160deg, #201a10, #14100a)', borderColor: '#5a4423', boxShadow: '0 0 40px rgba(0,0,0,0.6)' }}
+            className="relative w-full max-w-[560px] rounded-2xl border-2 p-5 overflow-hidden"
+            style={{ borderColor: '#5a4423', boxShadow: '0 0 40px rgba(0,0,0,0.6)' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-1">
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{
+                backgroundImage: "url('/images/scenes/worldmap-parchment.png')",
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                imageRendering: 'pixelated',
+              }}
+            />
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{ background: 'linear-gradient(160deg, rgba(32,26,16,0.82), rgba(20,16,10,0.9))' }}
+            />
+            <div className="relative z-10 flex items-center justify-between mb-1">
               <div className="font-serif text-[#e2c84a] text-lg font-bold tracking-wide">Mapa de la Tierra Media</div>
-              <button onClick={() => setWorldMapOpen(false)} className="text-[#8a7448] hover:text-[#e2c84a] text-sm px-2">✕</button>
+              <button onClick={() => setWorldMapOpen(false)} className="text-[#b89a5e] hover:text-[#e2c84a] text-sm px-2">✕</button>
             </div>
-            <p className="text-[#8a7448] text-[11px] mb-4">Selecciona una región descubierta para viajar. Pulsa <span className="text-[#c8a84b] font-bold">M</span> para cerrar.</p>
+            <p className="relative z-10 text-[#b89a5e] text-[11px] mb-4">Selecciona una región descubierta para viajar. Pulsa <span className="text-[#e2c84a] font-bold">M</span> para cerrar.</p>
 
             <div className="relative flex items-center justify-between gap-2">
               <div className="absolute left-[8%] right-[8%] top-1/2 h-[2px] -translate-y-1/2" style={{ background: 'repeating-linear-gradient(90deg, #5a4423 0 8px, transparent 8px 14px)' }} />
@@ -5622,10 +5669,17 @@ function GameInner() {
                     }}
                   >
                     <div
-                      className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-xl"
-                      style={{ background: rd.ground, borderColor: isCurrent ? '#e2c84a' : '#3a3a2a' }}
+                      className="w-14 h-14 rounded-lg border-2 overflow-hidden flex items-center justify-center text-xl"
+                      style={{
+                        borderColor: isCurrent ? '#e2c84a' : '#3a3a2a',
+                        backgroundImage: `url('/images/scenes/region-${rid}.png')`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        imageRendering: 'pixelated',
+                        filter: isUnlocked ? 'none' : 'grayscale(1) brightness(0.4)',
+                      }}
                     >
-                      {isUnlocked ? (rid === 'comarca' ? '🌻' : rid === 'bosque' ? '🕸️' : '🏔️') : '🔒'}
+                      {!isUnlocked && <span className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">🔒</span>}
                     </div>
                     <div className="text-center">
                       <div className="text-[11px] font-bold leading-tight" style={{ color: isCurrent ? '#e2c84a' : isUnlocked ? '#d8c89a' : '#6a6a5a' }}>{rd.name}</div>
@@ -5688,7 +5742,15 @@ function GameInner() {
       )}
 
       {screen === 'charsel' && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto">
+        <div
+          className="absolute inset-0 overflow-y-auto"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(10,8,4,0.55), rgba(10,8,4,0.88) 55%, rgba(10,8,4,0.94)), url(/images/scenes/charsel-shire.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
             TIERRA MEDIA
@@ -5758,7 +5820,15 @@ function GameInner() {
       )}
 
       {screen === 'diffsel' && selectedChar && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto">
+        <div
+          className="absolute inset-0 overflow-y-auto"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(10,8,4,0.55), rgba(10,8,4,0.88) 55%, rgba(10,8,4,0.94)), url(/images/scenes/diffsel-rivendell.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-2xl font-bold tracking-wider mb-2">
             DIFICULTAD
@@ -5845,7 +5915,15 @@ function GameInner() {
       )}
 
       {screen === 'pause' && (
-        <div className="absolute inset-0 bg-[rgba(10,8,4,0.98)] overflow-y-auto z-50">
+        <div
+          className="absolute inset-0 overflow-y-auto z-50"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(10,8,4,0.9), rgba(10,8,4,0.95)), url(/images/scenes/charsel-shire.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <div className="min-h-full flex flex-col items-center justify-center p-4 py-8">
           <h1 className="text-[#c8a84b] text-3xl font-bold tracking-wider mb-8">
             PAUSA
@@ -5932,7 +6010,15 @@ function GameInner() {
       )}
 
       {screen === 'dead' && (
-        <div className="absolute inset-0 bg-[rgba(60,5,5,0.93)] flex flex-col items-center justify-center">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(60,5,5,0.6), rgba(30,4,4,0.88)), url(/images/scenes/dead-mist.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <h1 className="text-[#c82020] text-3xl font-bold mb-4">HAS CAIDO</h1>
           <p className="text-[#8a4040] text-sm mb-6">
             Pero la esperanza no se ha perdido...
@@ -5947,7 +6033,15 @@ function GameInner() {
       )}
 
       {screen === 'gameover' && (
-        <div className="absolute inset-0 bg-[rgba(5,2,2,0.97)] flex flex-col items-center justify-center p-4">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center p-4"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(5,2,2,0.6), rgba(5,2,2,0.9)), url(/images/scenes/gameover-dark.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <div className="text-[#4a1010] text-xs tracking-widest mb-2">
             LA COMARCA HA CAIDO
           </div>
@@ -5967,7 +6061,15 @@ function GameInner() {
       )}
 
       {screen === 'win' && (
-        <div className="absolute inset-0 bg-[rgba(4,30,20,0.96)] flex flex-col items-center justify-center p-4">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center p-4"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(4,30,20,0.55), rgba(4,20,14,0.88)), url(/images/scenes/win-dawn.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            imageRendering: 'pixelated',
+          }}
+        >
           <h1 className="text-[#c8a84b] text-3xl font-bold mb-4">VICTORIA</h1>
           <p className="text-[#5a8a3a] text-lg mb-2">
             Aldeanos salvados: {savedCount}/8
